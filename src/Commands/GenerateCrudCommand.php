@@ -353,14 +353,32 @@ class GenerateCrudCommand extends Command
     private function parseTableName(string $sql): string { if (preg_match('/CREATE TABLE `?(\w+)`?/', $sql, $matches)) return $matches[1]; throw new Exception("Tidak dapat mem-parsing nama tabel."); }
     private function parseColumns(string $sql): array
     {
-        if (!preg_match('/\((.*)\)/s', $sql, $matches)) throw new Exception("Struktur kolom tidak valid.");
-        $columns = []; $lines = preg_split('/,\s*\n/', $matches[1]); $excludedKeywords = ['PRIMARY KEY', 'CONSTRAINT', 'UNIQUE KEY', 'KEY'];
+        preg_match('/CREATE TABLE `[^`]+` \((.*?)\)[^\)]*;/s', $sql, $matches);
+        if (!isset($matches[1])) {
+            return [];
+        }
+
+        $lines = explode(",\n", $matches[1]);
+        $columns = [];
+
         foreach ($lines as $line) {
             $line = trim($line);
-            if (preg_match('/^`?(\w+)`?/', $line, $colMatches)) {
-                $isKeywordLine = false;
-                foreach ($excludedKeywords as $keyword) if (str_starts_with(strtoupper($line), $keyword)) { $isKeywordLine = true; break; }
-                if (!$isKeywordLine) $columns[] = $colMatches[1];
+            $upper = strtoupper($line);
+
+            // Abaikan definisi non-kolom
+            if (
+                str_starts_with($upper, 'PRIMARY KEY') ||
+                str_starts_with($upper, 'UNIQUE KEY') ||
+                str_starts_with($upper, 'KEY') ||
+                str_starts_with($upper, 'CONSTRAINT') ||
+                str_starts_with($upper, 'INDEX') ||
+                str_starts_with($upper, 'FOREIGN KEY')
+            ) {
+                continue;
+            }
+
+            if (preg_match('/^`([^`]+)`/', $line, $colMatch)) {
+                $columns[] = $colMatch[1];
             }
         }
         if (empty($columns)) throw new Exception("Tidak ada kolom yang berhasil diparsing.");
