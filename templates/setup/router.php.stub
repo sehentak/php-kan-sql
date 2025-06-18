@@ -1,0 +1,82 @@
+<?php
+
+// File ini bertindak sebagai Front Controller dan Router sederhana.
+
+// 1. Inisialisasi Koneksi Database
+require_once __DIR__ . '/../bootstrap/database.php';
+$pdo = getPdoConnection();
+
+if (!$pdo) {
+    // Jika koneksi gagal, pesan error sudah dikirim oleh getPdoConnection()
+    exit;
+}
+
+// 2. Logika Routing Sederhana
+$requestUri = $_SERVER['REQUEST_URI'];
+$requestMethod = $_SERVER['REQUEST_METHOD'];
+
+// Menghapus query string dari URI
+$requestUri = strtok($requestUri, '?');
+
+// Memecah path menjadi segmen-segmen
+$pathParts = explode('/', trim($requestUri, '/'));
+
+$resource = $pathParts[0] ?? null; // 'users' atau 'products'
+$id = filter_var($pathParts[1] ?? null, FILTER_VALIDATE_INT); // ID, jika ada
+$action = $pathParts[2] ?? null; // 'restore', jika ada
+
+if (!$resource) {
+    header('Content-Type: application/json');
+    echo json_encode(['message' => 'Selamat datang di API. Silakan akses sebuah resource.']);
+    exit;
+}
+
+// 3. Memanggil Controller dan Method yang Sesuai
+$controllerName = 'App\\Http\\Controllers\\' . ucfirst($resource) . 'Controller';
+
+if (!class_exists($controllerName)) {
+    header('Content-Type: application/json');
+    http_response_code(404);
+    echo json_encode(['error' => "Resource '{$resource}' tidak ditemukan."]);
+    exit;
+}
+
+$controller = new $controllerName($pdo);
+
+$inputData = [];
+if (in_array($requestMethod, ['POST', 'PUT'])) {
+    $inputData = json_decode(file_get_contents('php://input'), true) ?? [];
+}
+
+// Menentukan method yang akan dipanggil
+switch ($requestMethod) {
+    case 'GET':
+        if ($id) {
+            $controller->show($id);
+        } else {
+            $controller->index();
+        }
+        break;
+    case 'POST':
+        if ($id && $action === 'restore') {
+            $controller->restore($id);
+        } else {
+            $controller->store($inputData);
+        }
+        break;
+    case 'PUT':
+        if ($id) {
+            $controller->update($id, $inputData);
+        }
+        break;
+    case 'DELETE':
+        if ($id) {
+            $controller->destroy($id);
+        }
+        break;
+    default:
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['error' => 'Metode tidak diizinkan.']);
+        break;
+}

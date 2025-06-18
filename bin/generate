@@ -20,8 +20,25 @@
 use Sehentak\PhpKanSql\Commands\GenerateCrudCommand;
 use Symfony\Component\Console\Application;
 
-// Inisialisasi aplikasi console
-$application = new Application('PHP-Kan-SQL Code Generator (PDO Edition)', '3.0.0');
+// --- PERUBAHAN DIMULAI DI SINI ---
+
+// Baca composer.json dari library untuk mendapatkan info aplikasi
+$composerJsonPath = __DIR__ . '/../composer.json';
+$appName = 'PHP-Kan-SQL Code Generator';
+$appVersion = '3.1.0'; // Fallback version
+
+if (file_exists($composerJsonPath)) {
+    $composerConfig = json_decode(file_get_contents($composerJsonPath), true);
+    // Gunakan deskripsi sebagai nama aplikasi jika ada
+    $appName = $composerConfig['description'] ?? $appName;
+    // Gunakan versi dari composer.json jika ada
+    $appVersion = $composerConfig['version'] ?? $appVersion;
+}
+
+// Inisialisasi aplikasi console dengan nama dan versi dinamis
+$application = new Application($appName, $appVersion);
+
+// --- PERUBAHAN SELESAI ---
 
 // Daftarkan perintah utama kita
 $application->add(new GenerateCrudCommand());
