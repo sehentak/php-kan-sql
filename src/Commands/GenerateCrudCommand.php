@@ -12,7 +12,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * Class GenerateCrudCommand
  * Generates a full Model-Repository-Controller architecture from an SQL schema,
- * now with automatic foreign key detection and relationship handling.
+ * with automatic foreign key detection and relationship handling.
  */
 class GenerateCrudCommand extends Command
 {
@@ -34,9 +34,13 @@ class GenerateCrudCommand extends Command
             ->setDescription('Membuat arsitektur Model-Repository(-Controller) dengan deteksi relasi.')
             ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql.')
             ->addOption(
-                'setup',
+                'controller',
                 null,
-                InputOption::VALUE_OPTIONAL,
+                InputOption::VALUE_NONE,
+                'Generate Model, Repository, dan Controller dasar.'
+            )
+            ->addOption(
+                'setup', null, InputOption::VALUE_OPTIONAL,
                 'Generate E2E setup (Controller, Router, dll). Pilihan: <fg=yellow>apache</>, <fg=yellow>nginx</>.',
                 false
             );
@@ -48,9 +52,15 @@ class GenerateCrudCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         try {
+            $withController = $input->getOption('controller');
             $setupMode = $input->getOption('setup');
             if ($setupMode === null && $input->hasParameterOption('--setup')) {
                 $setupMode = 'apache';
+            }
+
+            // Jika --setup digunakan, secara implisit --controller juga aktif
+            if ($setupMode !== false) {
+                $withController = true;
             }
 
             $sqlFilePath = $this->projectRoot . '/' . $input->getArgument('sql_file');
@@ -74,9 +84,12 @@ class GenerateCrudCommand extends Command
             $this->generateModel($output, $modelName, $columns, $foreignKeys);
             $this->generateRepository($output, $modelName, $tableName, $columns, $hasSoftDeletes, $foreignKeys, dirname($sqlFilePath));
             
-            if ($setupMode !== false) {
-                $output->writeln("\n<info>Mode --setup aktif. Menghasilkan lapisan HTTP...</info>");
+            if ($withController) {
                 $this->generateController($output, $modelName, $hasSoftDeletes);
+            }
+
+            if ($setupMode !== false) {
+                $output->writeln("\n<info>Mode --setup aktif. Menghasilkan file pendukung...</info>");
                 $this->generateDatabaseBootstrap($output);
                 $this->generateRouter($output, $modelName);
                 $this->generateEnvExample($output);
@@ -97,7 +110,7 @@ class GenerateCrudCommand extends Command
                 $this->printSetupInstructions($output);
             }
 
-            $output->writeln("\n<question>✅ Sukses! Kode fungsional dengan relasi telah berhasil dibuat.</question>");
+            $output->writeln("\n<question>✅ Sukses! Kode fungsional telah berhasil dibuat.</question>");
             return Command::SUCCESS;
 
         } catch (Exception $e) {
@@ -177,7 +190,7 @@ class GenerateCrudCommand extends Command
 
             $parentSqlPath = "{$schemaDir}/{$parentTable}.sql";
             if (!file_exists($parentSqlPath)) {
-                 $output->writeln("<warning>File skema untuk tabel relasi '{$parentTable}' tidak ditemukan di '{$parentSqlPath}'. Kolom relasi tidak akan di-hydrate.</warning>");
+                 $output->writeln("<warning>File skema untuk relasi '{$parentTable}' tidak ditemukan di '{$parentSqlPath}'. Relasi tidak akan di-hydrate.</warning>");
                  continue;
             }
 
@@ -196,6 +209,7 @@ class GenerateCrudCommand extends Command
                 $hydrationLogic .= "        if (isset(\$row['{$alias}'])) {\n";
                 $hydrationLogic .= "            \${$relationName}->{$camelCol} = \$row['{$alias}'];\n";
                 $hydrationLogic .= "            \$has{$parentModel}Data = true;\n";
+                $hydrationLogic .= "            unset(\$row['{$alias}']);\n";
                 $hydrationLogic .= "        }\n";
             }
             $hydrationLogic .= "        if (\$has{$parentModel}Data) {\n";
