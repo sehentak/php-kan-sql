@@ -731,6 +731,6 @@
             "install-path": "../symfony/string"
         }
     ],
-    "dev": true,
+    "dev": false,
     "dev-package-names": []
 }

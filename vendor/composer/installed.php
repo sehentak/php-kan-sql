@@ -1,13 +1,13 @@
 <?php return array(
     'root' => array(
         'name' => 'sehentak/php-kan-sql',
-        'pretty_version' => 'dev-main',
-        'version' => 'dev-main',
-        'reference' => '2eba4e2aeacdbb86cdd20a5d0e0c28870cd3e952',
+        'pretty_version' => '3.1.0',
+        'version' => '3.1.0.0',
+        'reference' => null,
         'type' => 'library',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
-        'dev' => true,
+        'dev' => false,
     ),
     'versions' => array(
         'psr/container' => array(
@@ -26,9 +26,9 @@
             ),
         ),
         'sehentak/php-kan-sql' => array(
-            'pretty_version' => 'dev-main',
-            'version' => 'dev-main',
-            'reference' => '2eba4e2aeacdbb86cdd20a5d0e0c28870cd3e952',
+            'pretty_version' => '3.1.0',
+            'version' => '3.1.0.0',
+            'reference' => null,
             'type' => 'library',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

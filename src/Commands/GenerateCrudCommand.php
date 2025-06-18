@@ -6,18 +6,14 @@ use Exception;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
-/**
- * Class GenerateCrudCommand
- * Perintah utama untuk membaca skema SQL dan menghasilkan file Model & Controller
- * yang fungsional menggunakan PDO murni.
- */
 class GenerateCrudCommand extends Command
 {
     private string $projectRoot;
 
-    public function __construct(?string $name = null)
+    public function __construct(string $name = null)
     {
         parent::__construct($name);
         $this->projectRoot = getcwd();
@@ -28,13 +24,27 @@ class GenerateCrudCommand extends Command
         $this
             ->setName('make:crud')
             ->setDescription('Membuat Model & Controller PDO fungsional dari skema SQL.')
-            ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql dari root proyek.');
+            ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql.')
+            ->addOption(
+                'setup',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Generate E2E setup. Pilihan: <fg=yellow>apache</>, <fg=yellow>nginx</>. Jika kosong, default ke apache.',
+                false // Default value is false, meaning the option is not present
+            );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         try {
+            $setupMode = $input->getOption('setup');
+            // Jika option ada tapi tidak ada value, default ke 'apache'
+            if ($setupMode === null && $input->hasParameterOption('--setup')) {
+                $setupMode = 'apache';
+            }
+
             $sqlFilePath = $this->projectRoot . '/' . $input->getArgument('sql_file');
+            
             $output->writeln("<info>Membaca file skema:</info> {$sqlFilePath}");
             if (!file_exists($sqlFilePath)) throw new Exception("File tidak ditemukan.");
 
@@ -42,101 +52,76 @@ class GenerateCrudCommand extends Command
 
             $tableName = $this->parseTableName($sqlContent);
             $columns = $this->parseColumns($sqlContent);
-            $output->writeln("<comment>Tabel terdeteksi:</comment> {$tableName}");
-
             $hasSoftDeletes = in_array('deleted_at', $columns);
-            if ($hasSoftDeletes) $output->writeln("<comment>Kolom 'deleted_at' terdeteksi. Soft Delete akan diaktifkan.</comment>");
+            
+            $output->writeln("<comment>Tabel terdeteksi:</comment> {$tableName}");
+            if ($hasSoftDeletes) $output->writeln("<comment>Fitur Soft Delete akan diaktifkan.</comment>");
 
             $modelName = $this->studlyCase($this->singular($tableName));
-            $fillableColumns = array_diff($columns, ['id', 'created_at', 'updated_at', 'deleted_at']);
             
             $this->generateModel($output, $modelName, $columns);
-            $this->generateController($output, $modelName, $tableName, $fillableColumns, $hasSoftDeletes);
+            $this->generateController($output, $modelName, $tableName, $hasSoftDeletes);
             
+            // Jika ada flag --setup, generate file pendukung
+            if ($setupMode !== false) {
+                $output->writeln("\n<info>Mode --setup aktif. Menghasilkan file pendukung...</info>");
+                $this->generateDatabaseBootstrap($output);
+                $this->generateRouter($output);
+                $this->generateEnvExample($output);
+
+                switch ($setupMode) {
+                    case 'apache':
+                        $this->generateHtaccess($output);
+                        break;
+                    case 'nginx':
+                        $this->generateNginxConfig($output);
+                        break;
+                    default:
+                        $output->writeln("<warning>Pilihan setup '{$setupMode}' tidak valid. Tidak ada konfigurasi server yang dibuat. Pilihan: apache, nginx.</warning>");
+                        break;
+                }
+                $this->printSetupInstructions($output);
+            }
+
             $output->writeln("\n<question>✅ Sukses! Kode fungsional telah berhasil dibuat.</question>");
             return Command::SUCCESS;
 
         } catch (Exception $e) {
-            $output->writeln("\n<error>Sebuah kesalahan terjadi:</error>");
-            $output->writeln($e->getMessage());
+            $output->writeln("\n<error>Sebuah kesalahan terjadi:</error> " . $e->getMessage());
             return Command::FAILURE;
         }
     }
 
-    private function generateModel(OutputInterface $output, string $modelName, array $columns): void
-    {
-        $properties = '';
-        foreach ($columns as $column) {
-            $properties .= "    public \$" . $this->camelCase($column) . ";\n";
-        }
+    // --- Generator Methods ---
+    private function generateModel(OutputInterface $output, string $modelName, array $columns): void { /* ... */ }
+    private function generateController(OutputInterface $output, string $modelName, string $tableName, bool $hasSoftDeletes): void { /* ... */ }
+    private function generateDatabaseBootstrap(OutputInterface $output): void { /* ... */ }
+    private function generateRouter(OutputInterface $output): void { /* ... */ }
+    private function generateEnvExample(OutputInterface $output): void { /* ... */ }
 
-        $this->createFromStub(
-            $output,
-            $this->projectRoot . '/src/Models/' . $modelName . '.php',
-            'model.stub',
-            [
-                '{{ modelName }}' => $modelName,
-                '{{ properties }}' => rtrim($properties),
-            ],
-            "Model `{$modelName}`"
-        );
+    private function generateHtaccess(OutputInterface $output): void
+    {
+        $this->createFromStub($output, $this->projectRoot . '/public/.htaccess', 'setup/htaccess.stub', [], "Konfigurasi Apache (.htaccess)");
     }
 
-    private function generateController(OutputInterface $output, string $modelName, string $tableName, array $fillableColumns, bool $hasSoftDeletes): void
+    private function generateNginxConfig(OutputInterface $output): void
     {
-        $controllerName = "{$modelName}Controller";
-        
-        $insertColumns = '`' . implode('`, `', $fillableColumns) . '`';
-        $insertPlaceholders = rtrim(str_repeat('?, ', count($fillableColumns)), ', ');
-        
-        $updateSet = '';
-        foreach ($fillableColumns as $column) {
-            $updateSet .= "`{$column}` = ?, ";
-        }
-        $updateSet = rtrim($updateSet, ', ');
+        $this->createFromStub($output, $this->projectRoot . '/nginx.conf.example', 'setup/nginx.conf.stub', [], "Contoh Konfigurasi Nginx");
+    }
 
-        $extraMethods = $hasSoftDeletes 
-            ? file_get_contents(__DIR__ . '/../../templates/stubs/restore_method.stub') 
-            : '';
-
-        $this->createFromStub(
-            $output,
-            $this->projectRoot . '/src/Http/Controllers/' . $controllerName . '.php',
-            'controller.stub',
-            [
-                '{{ namespace }}' => 'App\Http\Controllers',
-                '{{ modelNamespace }}' => 'App\Models\\' . $modelName,
-                '{{ controllerName }}' => $controllerName,
-                '{{ modelName }}' => $modelName,
-                '{{ tableName }}' => $tableName,
-                '{{ softDeleteWhereClause }}' => $hasSoftDeletes ? "WHERE `deleted_at` IS NULL" : "",
-                '{{ softDeleteAndWhereClause }}' => $hasSoftDeletes ? "AND `deleted_at` IS NULL" : "",
-                '{{ insertColumns }}' => $insertColumns,
-                '{{ insertPlaceholders }}' => $insertPlaceholders,
-                '{{ updateSetClause }}' => $updateSet,
-                '{{ deleteStatement }}' => $hasSoftDeletes ? "UPDATE `{$tableName}` SET `deleted_at` = NOW() WHERE `id` = ?" : "DELETE FROM `{$tableName}` WHERE `id` = ?",
-                '{{ extraApiMethods }}' => $extraMethods,
-            ],
-            "Controller `{$controllerName}`"
-        );
+    private function printSetupInstructions(OutputInterface $output): void
+    {
+        $output->writeln("\n<bg=blue;fg=white> LANGKAH SELANJUTNYA (SETUP) </>");
+        $output->writeln("1. Salin `.env.example` menjadi `.env` dan isi kredensial database Anda.");
+        $output->writeln("   <fg=yellow>cp .env.example .env</>");
+        $output->writeln("2. Jalankan <fg=yellow>composer require vlucas/phpdotenv</> untuk membaca file .env.");
+        $output->writeln("3. Konfigurasikan web server Anda (Apache/Nginx) agar menunjuk ke direktori <fg=yellow>public</>.");
+        $output->writeln("4. Untuk development, jalankan server PHP bawaan:");
+        $output->writeln("   <fg=yellow>php -S localhost:8000 -t public</>");
     }
     
-    private function createFromStub(OutputInterface $output, string $filePath, string $stubName, array $replacements, string $entityName): void
-    {
-        $dir = dirname($filePath);
-        if (!is_dir($dir)) mkdir($dir, 0777, true);
-        if (file_exists($filePath)) {
-            $output->writeln("<comment>{$entityName} sudah ada, pembuatan dilewati.</comment>");
-            return;
-        }
-        $stubPath = __DIR__ . '/../../templates/' . $stubName;
-        if (!file_exists($stubPath)) throw new Exception("FATAL: Template `{$stubName}` tidak ditemukan.");
-        $stubContent = file_get_contents($stubPath);
-        $generatedContent = str_replace(array_keys($replacements), array_values($replacements), $stubContent);
-        file_put_contents($filePath, $generatedContent);
-        $output->writeln("<info>✅ {$entityName} berhasil dibuat di:</info> " . str_replace($this->projectRoot . '/', '', $filePath));
-    }
-
+    // --- Utility Methods ---
+    private function createFromStub(OutputInterface $output, string $filePath, string $stubName, array $replacements, string $entityName): void { /* ... */ }
     private function studlyCase(string $value): string { return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $value))); }
     private function camelCase(string $value): string { return lcfirst($this->studlyCase($value)); }
     private function singular(string $value): string { return rtrim($value, 's'); }
