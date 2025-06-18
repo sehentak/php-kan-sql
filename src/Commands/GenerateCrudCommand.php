@@ -86,6 +86,9 @@ class GenerateCrudCommand extends Command
             
             if ($withController) {
                 $this->generateController($output, $modelName, $hasSoftDeletes);
+                $this->generateDatabaseBootstrap($output);
+                $this->generateEnvExample($output);
+                $this->installDotenvDependency($output);
             }
 
             if ($setupMode !== false) {
