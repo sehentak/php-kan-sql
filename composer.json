@@ -1,0 +1,17 @@
+{
+    "name": "sehentak/php-kan-sql",
+    "description": "Auto generate CRUD restful API from SQL",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Sehentak\\PhpKanSql\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "sehentak.com"
+        }
+    ],
+    "require": {}
+}
