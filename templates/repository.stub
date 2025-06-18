@@ -20,20 +20,21 @@ class {{ repositoryName }}
     }
 
     /**
-     * Mengambil satu item berdasarkan ID dan mengembalikannya sebagai objek {{ modelName }}.
-     * @return {{ modelName }}|false
+     * Mengambil satu item berdasarkan ID.
+     * @return {{ modelName }}|null
      */
-    public function find(int $id)
+    public function find(int $id): ?{{ modelName }}
     {
         $stmt = $this->pdo->prepare("SELECT * FROM `{{ tableName }}` WHERE `id` = ? {{ softDeleteAndWhereClause }} LIMIT 1");
         $stmt->execute([$id]);
         $stmt->setFetchMode(PDO::FETCH_CLASS, {{ modelName }}::class);
-        return $stmt->fetch();
+        $result = $stmt->fetch();
+        return $result ?: null;
     }
 
     /**
      * Mengambil semua item dengan pagination.
-     * @return array
+     * @return array{total: int, per_page: int, current_page: int, last_page: int, data: {{ modelName }}[]}
      */
     public function all(int $page = 1, int $perPage = 15): array
     {
@@ -59,28 +60,33 @@ class {{ repositoryName }}
     }
     
     /**
-     * Membuat item baru di database.
-     * @return {{ modelName }}|false
+     * Membuat item baru dari sebuah objek Model.
+     * @return {{ modelName }}|null
      */
-    public function create(array $data)
+    public function create({{ modelName }} $model): ?{{ modelName }}
     {
         $sql = "INSERT INTO `{{ tableName }}` ({{ insertColumns }}) VALUES ({{ insertPlaceholders }})";
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute(array_values($data));
+        $stmt->execute([
+{{ executeArrayParamsCreate }}
+        ]);
         
-        return $this->find($this->pdo->lastInsertId());
+        $lastId = $this->pdo->lastInsertId();
+        return $this->find((int)$lastId);
     }
 
     /**
-     * Memperbarui item yang ada di database.
-     * @return {{ modelName }}|false
+     * Memperbarui item yang ada dari sebuah objek Model.
+     * @return {{ modelName }}|null
      */
-    public function update(int $id, array $data)
+    public function update(int $id, {{ modelName }} $model): ?{{ modelName }}
     {
         $sql = "UPDATE `{{ tableName }}` SET {{ updateSetClause }} WHERE `id` = ?";
         $stmt = $this->pdo->prepare($sql);
         
-        $values = array_values($data);
+        $values = [
+{{ executeArrayParamsUpdate }}
+        ];
         $values[] = $id;
         $stmt->execute($values);
 
@@ -96,18 +102,5 @@ class {{ repositoryName }}
         $stmt = $this->pdo->prepare("{{ deleteStatement }}");
         return $stmt->execute([$id]);
     }
-
-    /**
-     * Mengembalikan item yang sudah di-soft delete.
-     * @return bool
-     */
-    public function restore(int $id): bool
-    {
-        {{#if restoreStatement}}
-        $stmt = $this->pdo->prepare("{{ restoreStatement }}");
-        $stmt->execute([$id]);
-        return $stmt->rowCount() > 0;
-        {{/if}}
-        return false; // Jika tidak ada soft delete, restore tidak melakukan apa-apa
-    }
+{{ restoreMethod }}
 }

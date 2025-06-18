@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use {{ repositoryNamespace }};
+use {{ modelNamespace }};
 use Exception;
 
 /**
@@ -22,7 +23,7 @@ class {{ controllerName }}
     {
         header('Content-Type: application/json');
         http_response_code($statusCode);
-        echo json_encode($data, JSON_PRETTY_PRINT);
+        echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
     
     public function index(): void
@@ -45,7 +46,16 @@ class {{ controllerName }}
                 throw new Exception('Invalid JSON body.');
             }
             
-            $newItem = $this->{{ repositoryVariable }}->create($inputData);
+            $model = new {{ modelName }}();
+            // Memetakan data input ke properti model (camelCase)
+            foreach ($inputData as $key => $value) {
+                $camelKey = lcfirst(str_replace('_', '', ucwords($key, '_')));
+                if (property_exists($model, $camelKey)) {
+                    $model->{$camelKey} = $value;
+                }
+            }
+
+            $newItem = $this->{{ repositoryVariable }}->create($model);
             $this->sendJsonResponse($newItem, 201);
         } catch (Exception $e) {
             $this->sendJsonResponse(['error' => 'Gagal menyimpan data.', 'message' => $e->getMessage()], 400);
@@ -74,11 +84,21 @@ class {{ controllerName }}
                 throw new Exception('Invalid JSON body.');
             }
             
-            $updatedItem = $this->{{ repositoryVariable }}->update($id, $inputData);
-            if (!$updatedItem) {
+            $model = $this->{{ repositoryVariable }}->find($id);
+            if (!$model) {
                  $this->sendJsonResponse(['error' => 'Data untuk diupdate tidak ditemukan.'], 404);
                  return;
             }
+
+            // Memperbarui properti model yang ada dengan data input
+            foreach ($inputData as $key => $value) {
+                $camelKey = lcfirst(str_replace('_', '', ucwords($key, '_')));
+                if (property_exists($model, $camelKey)) {
+                    $model->{$camelKey} = $value;
+                }
+            }
+            
+            $updatedItem = $this->{{ repositoryVariable }}->update($id, $model);
             $this->sendJsonResponse($updatedItem);
         } catch (Exception $e) {
             $this->sendJsonResponse(['error' => 'Gagal memperbarui data.', 'message' => $e->getMessage()], 400);
@@ -88,7 +108,11 @@ class {{ controllerName }}
     public function destroy(int $id): void
     {
         try {
-            $this->{{ repositoryVariable }}->delete($id);
+            $deleted = $this->{{ repositoryVariable }}->delete($id);
+            if (!$deleted) {
+                $this->sendJsonResponse(['error' => 'Data untuk dihapus tidak ditemukan.'], 404);
+                return;
+            }
             $this->sendJsonResponse([], 204);
         } catch (Exception $e) {
             $this->sendJsonResponse(['error' => 'Gagal menghapus data.', 'message' => $e->getMessage()], 500);
