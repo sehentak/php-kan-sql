@@ -3,7 +3,7 @@
     "description": "Auto generate RESTful API Controllers and Models from an SQL schema file.",
     "type": "library",
     "license": "MIT",
-    "version": "3.1.2",
+    "version": "3.2.2",
     "bin": [
         "bin/generate"
     ],
