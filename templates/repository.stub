@@ -1,10 +1,15 @@
 <?php
 
-namespace {{ namespace }};
+namespace App\Repositories;
 
 use PDO;
 use Exception;
+use {{ modelNamespace }};
 
+/**
+ * Class {{ repositoryName }}
+ * Bertanggung jawab atas semua interaksi database untuk entitas {{ modelName }}.
+ */
 class {{ repositoryName }}
 {
     private PDO $pdo;
@@ -15,120 +20,94 @@ class {{ repositoryName }}
     }
 
     /**
-     * Mengirim respons JSON standar.
+     * Mengambil satu item berdasarkan ID dan mengembalikannya sebagai objek {{ modelName }}.
+     * @return {{ modelName }}|false
      */
-    private function sendJsonResponse(array $data, int $statusCode = 200): void
+    public function find(int $id)
     {
-        header('Content-Type: application/json');
-        http_response_code($statusCode);
-        echo json_encode($data);
+        $stmt = $this->pdo->prepare("SELECT * FROM `{{ tableName }}` WHERE `id` = ? {{ softDeleteAndWhereClause }} LIMIT 1");
+        $stmt->execute([$id]);
+        $stmt->setFetchMode(PDO::FETCH_CLASS, {{ modelName }}::class);
+        return $stmt->fetch();
     }
 
     /**
-     * Menampilkan daftar resource dengan pagination.
+     * Mengambil semua item dengan pagination.
+     * @return array
      */
-    public function index(): void
+    public function all(int $page = 1, int $perPage = 15): array
     {
-        try {
-            $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-            $perPage = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 15;
-            $offset = ($page - 1) * $perPage;
+        $offset = ($page - 1) * $perPage;
 
-            // Hitung total data untuk pagination
-            $totalStmt = $this->pdo->query("SELECT COUNT(*) FROM `{{ tableName }}` {{ softDeleteWhereClause }}");
-            $total = $totalStmt->fetchColumn();
+        $totalStmt = $this->pdo->query("SELECT COUNT(*) FROM `{{ tableName }}` {{ softDeleteWhereClause }}");
+        $total = $totalStmt->fetchColumn();
 
-            // Ambil data untuk halaman saat ini
-            $stmt = $this->pdo->prepare("SELECT * FROM `{{ tableName }}` {{ softDeleteWhereClause }} LIMIT :limit OFFSET :offset");
-            $stmt->bindParam(':limit', $perPage, PDO::PARAM_INT);
-            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
-            $stmt->execute();
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            $this->sendJsonResponse([
-                'total' => (int)$total,
-                'per_page' => $perPage,
-                'current_page' => $page,
-                'last_page' => ceil($total / $perPage),
-                'data' => $data
-            ]);
-        } catch (Exception $e) {
-            $this->sendJsonResponse(['error' => 'Gagal mengambil data.', 'message' => $e->getMessage()], 500);
-        }
+        $stmt = $this->pdo->prepare("SELECT * FROM `{{ tableName }}` {{ softDeleteWhereClause }} LIMIT :limit OFFSET :offset");
+        $stmt->bindParam(':limit', $perPage, PDO::PARAM_INT);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        
+        $data = $stmt->fetchAll(PDO::FETCH_CLASS, {{ modelName }}::class);
+
+        return [
+            'total' => (int)$total,
+            'per_page' => $perPage,
+            'current_page' => $page,
+            'last_page' => (int)ceil($total / $perPage),
+            'data' => $data
+        ];
+    }
+    
+    /**
+     * Membuat item baru di database.
+     * @return {{ modelName }}|false
+     */
+    public function create(array $data)
+    {
+        $sql = "INSERT INTO `{{ tableName }}` ({{ insertColumns }}) VALUES ({{ insertPlaceholders }})";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute(array_values($data));
+        
+        return $this->find($this->pdo->lastInsertId());
     }
 
     /**
-     * Menyimpan resource baru ke dalam database.
+     * Memperbarui item yang ada di database.
+     * @return {{ modelName }}|false
      */
-    public function store(array $input): void
+    public function update(int $id, array $data)
     {
-        try {
-            $sql = "INSERT INTO `{{ tableName }}` ({{ insertColumns }}) VALUES ({{ insertPlaceholders }})";
-            $stmt = $this->pdo->prepare($sql);
-            
-            // PENTING: Urutan $input harus sama dengan urutan kolom
-            $stmt->execute(array_values($input));
-            
-            $lastId = $this->pdo->lastInsertId();
-            $this->show($lastId);
-        } catch (Exception $e) {
-            $this->sendJsonResponse(['error' => 'Gagal menyimpan data.', 'message' => $e->getMessage()], 500);
-        }
+        $sql = "UPDATE `{{ tableName }}` SET {{ updateSetClause }} WHERE `id` = ?";
+        $stmt = $this->pdo->prepare($sql);
+        
+        $values = array_values($data);
+        $values[] = $id;
+        $stmt->execute($values);
+
+        return $this->find($id);
     }
 
     /**
-     * Menampilkan satu resource spesifik.
+     * Menghapus (atau soft delete) item.
+     * @return bool
      */
-    public function show(int $id): void
+    public function delete(int $id): bool
     {
-        try {
-            $stmt = $this->pdo->prepare("SELECT * FROM `{{ tableName }}` WHERE `id` = ? {{ softDeleteAndWhereClause }} LIMIT 1");
-            $stmt->execute([$id]);
-            $item = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$item) {
-                $this->sendJsonResponse(['error' => 'Data tidak ditemukan.'], 404);
-                return;
-            }
-
-            $this->sendJsonResponse($item);
-        } catch (Exception $e) {
-            $this->sendJsonResponse(['error' => 'Gagal mengambil data.', 'message' => $e->getMessage()], 500);
-        }
+        $stmt = $this->pdo->prepare("{{ deleteStatement }}");
+        return $stmt->execute([$id]);
     }
 
     /**
-     * Memperbarui resource spesifik di database.
+     * Mengembalikan item yang sudah di-soft delete.
+     * @return bool
      */
-    public function update(int $id, array $input): void
+    public function restore(int $id): bool
     {
-        try {
-            $sql = "UPDATE `{{ tableName }}` SET {{ updateSetClause }} WHERE `id` = ?";
-            $stmt = $this->pdo->prepare($sql);
-
-            // PENTING: Urutan $input harus sama dengan urutan kolom
-            $values = array_values($input);
-            $values[] = $id; // Tambahkan ID di akhir untuk klausa WHERE
-            $stmt->execute($values);
-
-            $this->show($id);
-        } catch (Exception $e) {
-            $this->sendJsonResponse(['error' => 'Gagal memperbarui data.', 'message' => $e->getMessage()], 500);
-        }
+        {{#if restoreStatement}}
+        $stmt = $this->pdo->prepare("{{ restoreStatement }}");
+        $stmt->execute([$id]);
+        return $stmt->rowCount() > 0;
+        {{/if}}
+        return false; // Jika tidak ada soft delete, restore tidak melakukan apa-apa
     }
-
-    /**
-     * Menghapus resource.
-     */
-    public function destroy(int $id): void
-    {
-        try {
-            $stmt = $this->pdo->prepare("{{ deleteStatement }}");
-            $stmt->execute([$id]);
-            $this->sendJsonResponse([], 204);
-        } catch (Exception $e) {
-            $this->sendJsonResponse(['error' => 'Gagal menghapus data.', 'message' => $e->getMessage()], 500);
-        }
-    }
-{{ extraApiMethods }}
 }

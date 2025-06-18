@@ -7,48 +7,34 @@ require_once __DIR__ . '/../bootstrap/database.php';
 $pdo = getPdoConnection();
 
 if (!$pdo) {
-    // Jika koneksi gagal, pesan error sudah dikirim oleh getPdoConnection()
-    exit;
+    exit; // Pesan error sudah dikirim oleh getPdoConnection()
 }
 
-// 2. Logika Routing Sederhana
-$requestUri = $_SERVER['REQUEST_URI'];
+// 2. Dependency Injection Sederhana
+// Mengimpor dan membuat instance dari Repository dan Controller.
+// Dalam aplikasi nyata, Anda mungkin akan menggunakan container dependency injection.
+require_once __DIR__ . '/../src/Models/{{ modelName }}.php';
+require_once __DIR__ . '/../src/Repositories/{{ modelName }}Repository.php';
+require_once __DIR__ . '/../src/Http/Controllers/{{ modelName }}Controller.php';
+
+use App\Repositories\{{ modelName }}Repository;
+use App\Http\Controllers\{{ modelName }}Controller;
+
+$repository = new {{ modelName }}Repository($pdo);
+$controller = new {{ modelName }}Controller($repository);
+
+
+// 3. Logika Routing
+$requestUri = strtok($_SERVER['REQUEST_URI'], '?');
 $requestMethod = $_SERVER['REQUEST_METHOD'];
-
-// Menghapus query string dari URI
-$requestUri = strtok($requestUri, '?');
-
-// Memecah path menjadi segmen-segmen
 $pathParts = explode('/', trim($requestUri, '/'));
 
-$resource = $pathParts[0] ?? null; // 'users' atau 'products'
-$id = filter_var($pathParts[1] ?? null, FILTER_VALIDATE_INT); // ID, jika ada
-$action = $pathParts[2] ?? null; // 'restore', jika ada
+// Asumsi format URL: /resource/{id}/{action}
+$resource = $pathParts[0] ?? null;
+$id = filter_var($pathParts[1] ?? null, FILTER_VALIDATE_INT);
+$action = $pathParts[2] ?? null;
 
-if (!$resource) {
-    header('Content-Type: application/json');
-    echo json_encode(['message' => 'Selamat datang di API. Silakan akses sebuah resource.']);
-    exit;
-}
-
-// 3. Memanggil Controller dan Method yang Sesuai
-$controllerName = 'App\\Http\\Controllers\\' . ucfirst($resource) . 'Controller';
-
-if (!class_exists($controllerName)) {
-    header('Content-Type: application/json');
-    http_response_code(404);
-    echo json_encode(['error' => "Resource '{$resource}' tidak ditemukan."]);
-    exit;
-}
-
-$controller = new $controllerName($pdo);
-
-$inputData = [];
-if (in_array($requestMethod, ['POST', 'PUT'])) {
-    $inputData = json_decode(file_get_contents('php://input'), true) ?? [];
-}
-
-// Menentukan method yang akan dipanggil
+// Routing ke method yang sesuai
 switch ($requestMethod) {
     case 'GET':
         if ($id) {
@@ -61,12 +47,13 @@ switch ($requestMethod) {
         if ($id && $action === 'restore') {
             $controller->restore($id);
         } else {
-            $controller->store($inputData);
+            $controller->store();
         }
         break;
     case 'PUT':
+    case 'PATCH': // Memperlakukan PUT dan PATCH sama
         if ($id) {
-            $controller->update($id, $inputData);
+            $controller->update($id);
         }
         break;
     case 'DELETE':

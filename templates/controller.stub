@@ -1,0 +1,111 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use {{ repositoryNamespace }};
+use Exception;
+
+/**
+ * Class {{ controllerName }}
+ * Menangani request HTTP dan mendelegasikannya ke Repository.
+ */
+class {{ controllerName }}
+{
+    private {{ repositoryName }} ${{ repositoryVariable }};
+
+    public function __construct({{ repositoryName }} ${{ repositoryVariable }})
+    {
+        $this->{{ repositoryVariable }} = ${{ repositoryVariable }};
+    }
+
+    private function sendJsonResponse($data, int $statusCode = 200): void
+    {
+        header('Content-Type: application/json');
+        http_response_code($statusCode);
+        echo json_encode($data, JSON_PRETTY_PRINT);
+    }
+    
+    public function index(): void
+    {
+        try {
+            $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+            $perPage = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 15;
+            $result = $this->{{ repositoryVariable }}->all($page, $perPage);
+            $this->sendJsonResponse($result);
+        } catch (Exception $e) {
+            $this->sendJsonResponse(['error' => 'Gagal mengambil data.', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function store(): void
+    {
+        try {
+            $inputData = json_decode(file_get_contents('php://input'), true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new Exception('Invalid JSON body.');
+            }
+            
+            $newItem = $this->{{ repositoryVariable }}->create($inputData);
+            $this->sendJsonResponse($newItem, 201);
+        } catch (Exception $e) {
+            $this->sendJsonResponse(['error' => 'Gagal menyimpan data.', 'message' => $e->getMessage()], 400);
+        }
+    }
+
+    public function show(int $id): void
+    {
+        try {
+            $item = $this->{{ repositoryVariable }}->find($id);
+            if (!$item) {
+                $this->sendJsonResponse(['error' => 'Data tidak ditemukan.'], 404);
+                return;
+            }
+            $this->sendJsonResponse($item);
+        } catch (Exception $e) {
+            $this->sendJsonResponse(['error' => 'Gagal mengambil data.', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function update(int $id): void
+    {
+        try {
+            $inputData = json_decode(file_get_contents('php://input'), true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new Exception('Invalid JSON body.');
+            }
+            
+            $updatedItem = $this->{{ repositoryVariable }}->update($id, $inputData);
+            if (!$updatedItem) {
+                 $this->sendJsonResponse(['error' => 'Data untuk diupdate tidak ditemukan.'], 404);
+                 return;
+            }
+            $this->sendJsonResponse($updatedItem);
+        } catch (Exception $e) {
+            $this->sendJsonResponse(['error' => 'Gagal memperbarui data.', 'message' => $e->getMessage()], 400);
+        }
+    }
+
+    public function destroy(int $id): void
+    {
+        try {
+            $this->{{ repositoryVariable }}->delete($id);
+            $this->sendJsonResponse([], 204);
+        } catch (Exception $e) {
+            $this->sendJsonResponse(['error' => 'Gagal menghapus data.', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function restore(int $id): void
+    {
+        try {
+            $restored = $this->{{ repositoryVariable }}->restore($id);
+            if (!$restored) {
+                $this->sendJsonResponse(['error' => 'Data untuk direstore tidak ditemukan atau tidak memerlukan restore.'], 404);
+                return;
+            }
+            $this->sendJsonResponse(['message' => 'Resource berhasil dikembalikan.']);
+        } catch (Exception $e) {
+            $this->sendJsonResponse(['error' => 'Gagal mengembalikan data.', 'message' => $e->getMessage()], 500);
+        }
+    }
+}
