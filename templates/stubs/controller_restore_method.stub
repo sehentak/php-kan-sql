@@ -1,0 +1,14 @@
+
+    public function restore(int $id): void
+    {
+        try {
+            $restored = $this->{{ repositoryVariable }}->restore($id);
+            if (!$restored) {
+                $this->sendJsonResponse(['error' => 'Data untuk direstore tidak ditemukan atau tidak memerlukan restore.'], 404);
+                return;
+            }
+            $this->sendJsonResponse(['message' => 'Resource berhasil dikembalikan.']);
+        } catch (Exception $e) {
+            $this->sendJsonResponse(['error' => 'Gagal mengembalikan data.', 'message' => $e->getMessage()], 500);
+        }
+    }
