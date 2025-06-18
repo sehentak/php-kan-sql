@@ -6,6 +6,7 @@ use Exception;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
@@ -23,17 +24,36 @@ class GenerateCrudCommand extends Command
         $this->projectRoot = getcwd();
     }
 
+    /**
+     * Konfigurasi perintah CLI, termasuk nama, deskripsi, dan argumen.
+     */
     protected function configure(): void
     {
         $this
             ->setName('make:crud')
             ->setDescription('Membuat Model & Controller PDO fungsional dari skema SQL.')
-            ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql dari root proyek.');
+            ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql dari root proyek.')
+            ->addOption(
+                'setup',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Generate E2E setup. Pilihan: <fg=yellow>apache</>, <fg=yellow>nginx</>. Jika flag ada tanpa nilai, default ke apache.',
+                false // Nilai default false berarti opsi tidak ada secara default
+            );
     }
 
+    /**
+     * Logika utama yang akan dieksekusi saat perintah dijalankan.
+     */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         try {
+            $setupMode = $input->getOption('setup');
+            // Jika opsi --setup digunakan tanpa nilai, set default ke 'apache'
+            if ($setupMode === null && $input->hasParameterOption('--setup')) {
+                $setupMode = 'apache';
+            }
+
             $sqlFilePath = $this->projectRoot . '/' . $input->getArgument('sql_file');
             $output->writeln("<info>Membaca file skema:</info> {$sqlFilePath}");
             if (!file_exists($sqlFilePath)) throw new Exception("File tidak ditemukan.");
@@ -49,10 +69,31 @@ class GenerateCrudCommand extends Command
 
             $modelName = $this->studlyCase($this->singular($tableName));
             
-            // --- BAGIAN KUNCI YANG DIPERBAIKI ---
+            // Generate file-file inti
             $this->generateModel($output, $modelName, $columns);
             $this->generateController($output, $modelName, $tableName, $columns, $hasSoftDeletes);
             
+            // Jika mode setup aktif, generate file-file pendukung
+            if ($setupMode !== false) {
+                $output->writeln("\n<info>Mode --setup aktif. Menghasilkan file pendukung...</info>");
+                $this->generateDatabaseBootstrap($output);
+                $this->generateRouter($output);
+                $this->generateEnvExample($output);
+
+                switch ($setupMode) {
+                    case 'apache':
+                        $this->generateHtaccess($output);
+                        break;
+                    case 'nginx':
+                        $this->generateNginxConfig($output);
+                        break;
+                    default:
+                        $output->writeln("<warning>Pilihan setup '{$setupMode}' tidak valid. Tidak ada konfigurasi server yang dibuat. Pilihan: apache, nginx.</warning>");
+                        break;
+                }
+                $this->printSetupInstructions($output);
+            }
+
             $output->writeln("\n<question>✅ Sukses! Kode fungsional telah berhasil dibuat.</question>");
             return Command::SUCCESS;
 
@@ -65,13 +106,11 @@ class GenerateCrudCommand extends Command
 
     /**
      * Menghasilkan file Model berdasarkan template.
-     * Logika di sini telah ditulis ulang untuk mengisi placeholder '{{ properties }}'.
      */
     private function generateModel(OutputInterface $output, string $modelName, array $columns): void
     {
         $properties = '';
         foreach ($columns as $column) {
-            // Membuat properti publik untuk setiap kolom dalam format camelCase
             $properties .= "    public \$" . $this->camelCase($column) . ";\n";
         }
 
@@ -81,7 +120,7 @@ class GenerateCrudCommand extends Command
             'model.stub',
             [
                 '{{ modelName }}' => $modelName,
-                '{{ properties }}' => rtrim($properties), // Mengisi placeholder yang benar
+                '{{ properties }}' => rtrim($properties),
             ],
             "Model `{$modelName}`"
         );
@@ -94,9 +133,7 @@ class GenerateCrudCommand extends Command
     {
         $controllerName = "{$modelName}Controller";
         
-        // Hanya kolom yang bisa diisi (bukan id atau timestamps)
         $fillableColumns = array_diff($columns, ['id', 'created_at', 'updated_at', 'deleted_at']);
-        
         $insertColumns = '`' . implode('`, `', $fillableColumns) . '`';
         $insertPlaceholders = rtrim(str_repeat('?, ', count($fillableColumns)), ', ');
         
@@ -130,6 +167,42 @@ class GenerateCrudCommand extends Command
             ],
             "Controller `{$controllerName}`"
         );
+    }
+
+    private function generateDatabaseBootstrap(OutputInterface $output): void
+    {
+        $this->createFromStub($output, $this->projectRoot . '/bootstrap/database.php', 'setup/database.php.stub', [], "Bootstrap Database");
+    }
+
+    private function generateRouter(OutputInterface $output): void
+    {
+        $this->createFromStub($output, $this->projectRoot . '/public/index.php', 'setup/router.php.stub', [], "Router (index.php)");
+    }
+
+    private function generateHtaccess(OutputInterface $output): void
+    {
+        $this->createFromStub($output, $this->projectRoot . '/public/.htaccess', 'setup/htaccess.stub', [], "Konfigurasi Apache (.htaccess)");
+    }
+
+    private function generateNginxConfig(OutputInterface $output): void
+    {
+        $this->createFromStub($output, $this->projectRoot . '/nginx.conf.example', 'setup/nginx.conf.stub', [], "Contoh Konfigurasi Nginx");
+    }
+
+    private function generateEnvExample(OutputInterface $output): void
+    {
+        $this->createFromStub($output, $this->projectRoot . '/.env.example', 'setup/env.example.stub', [], "Contoh Environment (.env.example)");
+    }
+
+    private function printSetupInstructions(OutputInterface $output): void
+    {
+        $output->writeln("\n<bg=blue;fg=white> LANGKAH SELANJUTNYA (SETUP) </>");
+        $output->writeln("1. Salin `.env.example` menjadi `.env` dan isi kredensial database Anda.");
+        $output->writeln("   <fg=yellow>cp .env.example .env</>");
+        $output->writeln("2. Jalankan <fg=yellow>composer require vlucas/phpdotenv</> untuk membaca file .env.");
+        $output->writeln("3. Konfigurasikan web server Anda (Apache/Nginx) agar menunjuk ke direktori <fg=yellow>public</>.");
+        $output->writeln("4. Untuk development, jalankan server PHP bawaan:");
+        $output->writeln("   <fg=yellow>php -S localhost:8000 -t public</>");
     }
     
     /**
