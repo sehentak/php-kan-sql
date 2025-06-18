@@ -17,6 +17,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 class GenerateCrudCommand extends Command
 {
     private string $projectRoot;
+    private InputInterface $input; // Properti untuk menyimpan input
 
     public function __construct(?string $name = null)
     {
@@ -32,13 +33,13 @@ class GenerateCrudCommand extends Command
         $this
             ->setName('make:crud')
             ->setDescription('Membuat Model & Controller PDO fungsional dari skema SQL.')
-            ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql dari root proyek.')
+            ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql.')
             ->addOption(
                 'setup',
                 null,
                 InputOption::VALUE_OPTIONAL,
-                'Generate E2E setup. Pilihan: <fg=yellow>apache</>, <fg=yellow>nginx</>. Jika flag ada tanpa nilai, default ke apache.',
-                false // Nilai default false berarti opsi tidak ada secara default
+                'Generate E2E setup. Pilihan: <fg=yellow>apache</>, <fg=yellow>nginx</>. Jika kosong, default ke apache.',
+                false
             );
     }
 
@@ -47,6 +48,8 @@ class GenerateCrudCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $this->input = $input; // Simpan input agar bisa diakses di metode lain jika perlu
+
         try {
             $setupMode = $input->getOption('setup');
             // Jika opsi --setup digunakan tanpa nilai, set default ke 'apache'
@@ -55,6 +58,7 @@ class GenerateCrudCommand extends Command
             }
 
             $sqlFilePath = $this->projectRoot . '/' . $input->getArgument('sql_file');
+            
             $output->writeln("<info>Membaca file skema:</info> {$sqlFilePath}");
             if (!file_exists($sqlFilePath)) throw new Exception("File tidak ditemukan.");
 
@@ -65,12 +69,15 @@ class GenerateCrudCommand extends Command
             $output->writeln("<comment>Tabel terdeteksi:</comment> {$tableName}");
 
             $hasSoftDeletes = in_array('deleted_at', $columns);
-            if ($hasSoftDeletes) $output->writeln("<comment>Kolom 'deleted_at' terdeteksi. Soft Delete akan diaktifkan.</comment>");
+            
+            $output->writeln("<comment>Tabel terdeteksi:</comment> {$tableName}");
+            if ($hasSoftDeletes) $output->writeln("<comment>Fitur Soft Delete akan diaktifkan.</comment>");
 
             $modelName = $this->studlyCase($this->singular($tableName));
             
             // Generate file-file inti
             $this->generateModel($output, $modelName, $columns);
+            // --- PERUBAHAN DI SINI: Melewatkan $columns yang sudah diparsing ---
             $this->generateController($output, $modelName, $tableName, $columns, $hasSoftDeletes);
             
             // Jika mode setup aktif, generate file pendukung
@@ -88,21 +95,18 @@ class GenerateCrudCommand extends Command
                         $this->generateNginxConfig($output);
                         break;
                     default:
-                        $output->writeln("<warning>Pilihan setup '{$setupMode}' tidak valid. Tidak ada konfigurasi server yang dibuat. Pilihan: apache, nginx.</warning>");
+                        $output->writeln("<warning>Pilihan setup '{$setupMode}' tidak valid.</warning>");
                         break;
                 }
-                
-                // --- PERUBAHAN DI SINI ---
-                $this->installDotenvDependency($output); // Instal dependensi secara otomatis
-                $this->printSetupInstructions($output); // Tampilkan instruksi yang sudah diperbarui
+                $this->installDotenvDependency($output);
+                $this->printSetupInstructions($output);
             }
 
             $output->writeln("\n<question>✅ Sukses! Kode fungsional telah berhasil dibuat.</question>");
             return Command::SUCCESS;
 
         } catch (Exception $e) {
-            $output->writeln("\n<error>Sebuah kesalahan terjadi:</error>");
-            $output->writeln($e->getMessage());
+            $output->writeln("\n<error>Sebuah kesalahan terjadi:</error> " . $e->getMessage());
             return Command::FAILURE;
         }
     }
@@ -136,7 +140,9 @@ class GenerateCrudCommand extends Command
     {
         $controllerName = "{$modelName}Controller";
         
+        // Menggunakan $columns yang sudah dilewatkan, bukan mem-parsing ulang
         $fillableColumns = array_diff($columns, ['id', 'created_at', 'updated_at', 'deleted_at']);
+        
         $insertColumns = '`' . implode('`, `', $fillableColumns) . '`';
         $insertPlaceholders = rtrim(str_repeat('?, ', count($fillableColumns)), ', ');
         
@@ -146,9 +152,16 @@ class GenerateCrudCommand extends Command
         }
         $updateSet = rtrim($updateSet, ', ');
 
-        $extraMethods = $hasSoftDeletes 
-            ? file_get_contents(__DIR__ . '/../../templates/stubs/restore_method.stub') 
-            : '';
+        $extraMethods = '';
+        if ($hasSoftDeletes) {
+            $restoreStub = file_get_contents(__DIR__ . '/../../templates/stubs/restore_method.stub');
+            // Menambahkan '{{ tableName }}' ke dalam array pengganti
+            $extraMethods = str_replace(
+                ['{{ modelName }}', '{{ modelVariable }}', '{{ tableName }}'],
+                [$modelName, lcfirst($modelName), $tableName],
+                $restoreStub
+            );
+        }
 
         $this->createFromStub(
             $output,
@@ -197,7 +210,6 @@ class GenerateCrudCommand extends Command
         $this->createFromStub($output, $this->projectRoot . '/.env.example', 'setup/env.example.stub', [], "Contoh Environment (.env.example)");
     }
 
-    // --- METODE BARU DI SINI ---
     /**
      * Menginstal dependensi vlucas/phpdotenv secara otomatis.
      */
@@ -223,7 +235,7 @@ class GenerateCrudCommand extends Command
         $command = 'composer require vlucas/phpdotenv --working-dir=' . escapeshellarg($this->projectRoot);
         shell_exec($command);
 
-        // Verifikasi ulang
+        clearstatcache(); // Membersihkan cache status file
         $composerConfig = json_decode(file_get_contents($composerJsonPath), true);
         if (isset($composerConfig['require']['vlucas/phpdotenv'])) {
             $output->writeln("<info>✅ vlucas/phpdotenv berhasil diinstal.</info>");
