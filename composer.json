@@ -1,8 +1,11 @@
 {
     "name": "sehentak/php-kan-sql",
-    "description": "Auto generate CRUD restful API from SQL",
+    "description": "Auto generate RESTful API Controllers and Models from an SQL schema file.",
     "type": "library",
     "license": "MIT",
+    "bin": [
+        "bin/generate"
+    ],
     "autoload": {
         "psr-4": {
             "Sehentak\\PhpKanSql\\": "src/"
@@ -13,5 +16,11 @@
             "name": "sehentak.com"
         }
     ],
-    "require": {}
+    "require": {
+        "php": ">=7.4",
+        "symfony/console": "^7.3"
+    },
+    "config": {
+        "sort-packages": true
+    }
 }
