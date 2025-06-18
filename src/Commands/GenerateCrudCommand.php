@@ -31,7 +31,7 @@ class GenerateCrudCommand extends Command
     {
         $this
             ->setName('make:crud')
-            ->setDescription('Membuat Model & Repository (dan opsional Controller) fungsional dari skema SQL.')
+            ->setDescription('Membuat arsitektur Model-Repository(-Controller) fungsional dari skema SQL.')
             ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql.')
             ->addOption(
                 'setup',
@@ -59,7 +59,6 @@ class GenerateCrudCommand extends Command
 
             $sqlContent = file_get_contents($sqlFilePath);
 
-            // Parsing informasi penting
             $tableName = $this->parseTableName($sqlContent);
             $columns = $this->parseColumns($sqlContent);
             $hasSoftDeletes = in_array('deleted_at', $columns);
@@ -75,7 +74,7 @@ class GenerateCrudCommand extends Command
             // Jika mode setup aktif, generate lapisan HTTP (Controller & file pendukung)
             if ($setupMode !== false) {
                 $output->writeln("\n<info>Mode --setup aktif. Menghasilkan lapisan HTTP...</info>");
-                $this->generateController($output, $modelName);
+                $this->generateController($output, $modelName, $hasSoftDeletes);
                 $this->generateDatabaseBootstrap($output);
                 $this->generateRouter($output, $modelName);
                 $this->generateEnvExample($output);
@@ -105,14 +104,13 @@ class GenerateCrudCommand extends Command
         }
     }
 
-    /**
-     * Menghasilkan file Model berdasarkan template.
-     */
+    // --- Generator Methods ---
+
     private function generateModel(OutputInterface $output, string $modelName, array $columns): void
     {
         $properties = '';
         foreach ($columns as $column) {
-            $properties .= "    public \$" . $this->camelCase($column) . ";\n";
+            $properties .= "    public ?string $" . $this->camelCase($column) . " = null;\n";
         }
         $this->createFromStub($output, '/src/Models/' . $modelName . '.php', 'model.stub', [
             '{{ modelName }}' => $modelName,
@@ -165,10 +163,17 @@ class GenerateCrudCommand extends Command
         ], "Repository `{$repositoryName}`");
     }
 
-    private function generateController(OutputInterface $output, string $modelName): void
+    private function generateController(OutputInterface $output, string $modelName, bool $hasSoftDeletes): void
     {
         $controllerName = "{$modelName}Controller";
         $repositoryName = "{$modelName}Repository";
+        
+        $restoreMethod = '';
+        if ($hasSoftDeletes) {
+            $restoreStub = file_get_contents(__DIR__ . '/../../templates/stubs/controller_restore_method.stub');
+            $restoreMethod = str_replace('{{ repositoryVariable }}', lcfirst($repositoryName), $restoreStub);
+        }
+
         $this->createFromStub($output, '/src/Http/Controllers/' . $controllerName . '.php', 'controller.stub', [
             '{{ controllerName }}' => $controllerName,
             '{{ modelName }}' => $modelName,
@@ -176,6 +181,7 @@ class GenerateCrudCommand extends Command
             '{{ repositoryName }}' => $repositoryName,
             '{{ repositoryNamespace }}' => 'App\\Repositories\\' . $repositoryName,
             '{{ repositoryVariable }}' => lcfirst($repositoryName),
+            '{{ restoreMethod }}' => $restoreMethod,
         ], "Controller `{$controllerName}`");
     }
     
