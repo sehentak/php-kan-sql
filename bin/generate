@@ -1,0 +1,35 @@
+#!/usr/bin/env php
+<?php
+
+// Skrip cerdas untuk menemukan autoloader Composer
+(function () {
+    $files = [
+        __DIR__ . '/../vendor/autoload.php',  // Saat development
+        __DIR__ . '/../../../autoload.php', // Setelah diinstal sebagai dependensi
+    ];
+    foreach ($files as $file) {
+        if (file_exists($file)) {
+            require $file;
+            return;
+        }
+    }
+    fwrite(STDERR, "Composer autoloader tidak ditemukan." . PHP_EOL . "Jalankan 'composer install' untuk menginstalnya." . PHP_EOL);
+    exit(1);
+})();
+
+use Sehentak\PhpKanSql\Commands\GenerateCrudCommand;
+use Symfony\Component\Console\Application;
+
+// Inisialisasi aplikasi console
+$application = new Application('PHP-Kan-SQL Code Generator', '1.1.0');
+
+// Daftarkan perintah utama kita
+$application->add(new GenerateCrudCommand());
+
+// Jalankan aplikasi
+try {
+    $application->run();
+} catch (Exception $e) {
+    fwrite(STDERR, 'Error: ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}

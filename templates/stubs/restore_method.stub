@@ -1,0 +1,18 @@
+
+    /**
+     * Mengembalikan data yang sudah di-soft delete dengan mengosongkan `deleted_at`.
+     * Anda perlu menambahkan route untuk ini, contoh: POST /resource/{id}/restore
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function restore($id)
+    {
+        // TODO: Cari data di tong sampah dan kembalikan.
+        // Contoh dengan Eloquent:
+        // ${{ modelVariable }} = {{ modelName }}::withTrashed()->findOrFail($id);
+        // ${{ modelVariable }}->restore();
+        // return response()->json(['message' => 'Resource berhasil dikembalikan.']);
+
+        return response()->json(['message' => 'Endpoint belum diimplementasikan.'], 501);
+    }
