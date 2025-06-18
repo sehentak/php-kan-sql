@@ -11,8 +11,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Class GenerateCrudCommand
- * Perintah utama untuk membaca skema SQL dan menghasilkan arsitektur Model-Repository(-Controller)
- * yang fungsional menggunakan PDO murni.
+ * Generates a full Model-Repository-Controller architecture from an SQL schema,
+ * now with automatic foreign key detection and relationship handling.
  */
 class GenerateCrudCommand extends Command
 {
@@ -31,7 +31,7 @@ class GenerateCrudCommand extends Command
     {
         $this
             ->setName('make:crud')
-            ->setDescription('Membuat arsitektur Model-Repository(-Controller) fungsional dari skema SQL.')
+            ->setDescription('Membuat arsitektur Model-Repository(-Controller) dengan deteksi relasi.')
             ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql.')
             ->addOption(
                 'setup',
@@ -59,19 +59,21 @@ class GenerateCrudCommand extends Command
 
             $sqlContent = file_get_contents($sqlFilePath);
 
+            // --- Parsing Logic ---
             $tableName = $this->parseTableName($sqlContent);
             $columns = $this->parseColumns($sqlContent);
+            $foreignKeys = $this->parseForeignKeys($sqlContent);
             $hasSoftDeletes = in_array('deleted_at', $columns);
             $modelName = $this->studlyCase($this->singular($tableName));
             
             $output->writeln("<comment>Tabel terdeteksi:</comment> {$tableName}");
             if ($hasSoftDeletes) $output->writeln("<comment>Fitur Soft Delete akan diaktifkan.</comment>");
-
-            // Selalu generate file inti (Model & Repository)
-            $this->generateModel($output, $modelName, $columns);
-            $this->generateRepository($output, $modelName, $tableName, $columns, $hasSoftDeletes);
+            if (!empty($foreignKeys)) $output->writeln("<comment>Relasi Foreign Key terdeteksi.</comment>");
             
-            // Jika mode setup aktif, generate lapisan HTTP (Controller & file pendukung)
+            // --- Generation Logic ---
+            $this->generateModel($output, $modelName, $columns, $foreignKeys);
+            $this->generateRepository($output, $modelName, $tableName, $columns, $hasSoftDeletes, $foreignKeys, dirname($sqlFilePath));
+            
             if ($setupMode !== false) {
                 $output->writeln("\n<info>Mode --setup aktif. Menghasilkan lapisan HTTP...</info>");
                 $this->generateController($output, $modelName, $hasSoftDeletes);
@@ -87,7 +89,7 @@ class GenerateCrudCommand extends Command
                         $this->generateNginxConfig($output);
                         break;
                     default:
-                        $output->writeln("<warning>Pilihan setup '{$setupMode}' tidak valid. Tidak ada konfigurasi server yang dibuat.</warning>");
+                        $output->writeln("<warning>Pilihan setup '{$setupMode}' tidak valid.</warning>");
                         break;
                 }
 
@@ -95,7 +97,7 @@ class GenerateCrudCommand extends Command
                 $this->printSetupInstructions($output);
             }
 
-            $output->writeln("\n<question>✅ Sukses! Kode fungsional telah berhasil dibuat.</question>");
+            $output->writeln("\n<question>✅ Sukses! Kode fungsional dengan relasi telah berhasil dibuat.</question>");
             return Command::SUCCESS;
 
         } catch (Exception $e) {
@@ -106,24 +108,44 @@ class GenerateCrudCommand extends Command
 
     // --- Generator Methods ---
 
-    private function generateModel(OutputInterface $output, string $modelName, array $columns): void
+    private function generateModel(OutputInterface $output, string $modelName, array $columns, array $foreignKeys): void
     {
         $properties = '';
+        $useStatements = '';
+        $existingUse = [];
+
         foreach ($columns as $column) {
             $properties .= "    public ?string $" . $this->camelCase($column) . " = null;\n";
         }
-        $this->createFromStub($output, '/src/Models/' . $modelName . '.php', 'model.stub', [
+        
+        foreach ($foreignKeys as $fk) {
+            $relatedModel = $this->studlyCase($this->singular($fk['parent_table']));
+            $relationName = $this->camelCase($this->singular($fk['parent_table']));
+            $properties .= "\n    /** @var \\App\\Models\\{$relatedModel}|null */\n";
+            $properties .= "    public ?object \${$relationName} = null;\n";
+            if (!isset($existingUse[$relatedModel])) {
+                $useStatements .= "use App\\Models\\{$relatedModel};\n";
+                $existingUse[$relatedModel] = true;
+            }
+        }
+
+        $this->createFromStub($output, '/src/Models/' . $modelName . '.php', 'model_with_relations.stub', [
             '{{ modelName }}' => $modelName,
+            '{{ useStatements }}' => $useStatements,
             '{{ properties }}' => rtrim($properties),
         ], "Model `{$modelName}`");
     }
 
-    /**
-     * Menghasilkan file Repository berdasarkan template.
-     */
-    private function generateRepository(OutputInterface $output, string $modelName, string $tableName, array $columns, bool $hasSoftDeletes): void
+    private function generateRepository(OutputInterface $output, string $modelName, string $tableName, array $columns, bool $hasSoftDeletes, array $foreignKeys, string $schemaDir): void
     {
         $repositoryName = "{$modelName}Repository";
+        
+        // --- Logic to build dynamic JOINs and SELECTs ---
+        $selects = ["`{$tableName}`.*"];
+        $joins = "";
+        $hydrationLogic = "";
+        $useStatements = "use App\\Models\\{$modelName};\n";
+        $existingUse = [$modelName => true];
         $fillableColumns = array_diff($columns, ['id', 'created_at', 'updated_at', 'deleted_at']);
         
         $insertColumns = '`' . implode('`, `', $fillableColumns) . '`';
@@ -139,6 +161,47 @@ class GenerateCrudCommand extends Command
             $executeArrayParamsCreate .= "            \$model->{$camelCaseColumn},\n";
             $executeArrayParamsUpdate .= "            \$model->{$camelCaseColumn},\n";
         }
+
+        foreach ($foreignKeys as $fk) {
+            $parentTable = $fk['parent_table'];
+            $parentModel = $this->studlyCase($this->singular($parentTable));
+            $relationName = $this->camelCase($this->singular($parentTable));
+            $fkPrefix = "{$relationName}_";
+
+            if (!isset($existingUse[$parentModel])) {
+                $useStatements .= "use App\\Models\\{$parentModel};\n";
+                $existingUse[$parentModel] = true;
+            }
+
+            $joins .= "\n        LEFT JOIN `{$parentTable}` ON `{$tableName}`.`{$fk['column']}` = `{$parentTable}`.`id`";
+
+            $parentSqlPath = "{$schemaDir}/{$parentTable}.sql";
+            if (!file_exists($parentSqlPath)) {
+                 $output->writeln("<warning>File skema untuk tabel relasi '{$parentTable}' tidak ditemukan di '{$parentSqlPath}'. Kolom relasi tidak akan di-hydrate.</warning>");
+                 continue;
+            }
+
+            $parentSql = file_get_contents($parentSqlPath);
+            $parentColumns = $this->parseColumns($parentSql);
+
+            $hydrationLogic .= "\n        // Hydrate {$parentModel} relation\n";
+            $hydrationLogic .= "        \${$relationName} = new {$parentModel}();\n";
+            $hydrationLogic .= "        \$has{$parentModel}Data = false;\n";
+
+            foreach ($parentColumns as $pCol) {
+                $alias = $fkPrefix . $pCol;
+                $selects[] = "`{$parentTable}`.`{$pCol}` as `{$alias}`";
+                $camelCol = $this->camelCase($pCol);
+
+                $hydrationLogic .= "        if (isset(\$row['{$alias}'])) {\n";
+                $hydrationLogic .= "            \${$relationName}->{$camelCol} = \$row['{$alias}'];\n";
+                $hydrationLogic .= "            \$has{$parentModel}Data = true;\n";
+                $hydrationLogic .= "        }\n";
+            }
+            $hydrationLogic .= "        if (\$has{$parentModel}Data) {\n";
+            $hydrationLogic .= "            \$model->{$relationName} = \${$relationName};\n";
+            $hydrationLogic .= "        }\n";
+        }
         
         $restoreMethod = '';
         if ($hasSoftDeletes) {
@@ -146,13 +209,16 @@ class GenerateCrudCommand extends Command
             $restoreMethod = str_replace('{{ tableName }}', $tableName, $restoreStub);
         }
 
-        $this->createFromStub($output, '/src/Repositories/' . $repositoryName . '.php', 'repository.stub', [
+        $this->createFromStub($output, '/src/Repositories/' . $repositoryName . '.php', 'repository_with_join.stub', [
             '{{ repositoryName }}' => $repositoryName,
+            '{{ useStatements }}' => rtrim($useStatements),
             '{{ modelName }}' => $modelName,
-            '{{ modelNamespace }}' => 'App\\Models\\' . $modelName,
             '{{ tableName }}' => $tableName,
-            '{{ softDeleteWhereClause }}' => $hasSoftDeletes ? "WHERE `deleted_at` IS NULL" : "",
-            '{{ softDeleteAndWhereClause }}' => $hasSoftDeletes ? "AND `deleted_at` IS NULL" : "",
+            '{{ selectColumns }}' => implode(",\n           ", $selects),
+            '{{ joinClause }}' => $joins,
+            '{{ hydrationLogic }}' => $hydrationLogic,
+            '{{ softDeleteWhereClause }}' => $hasSoftDeletes ? "WHERE `{$tableName}`.`deleted_at` IS NULL" : "",
+            '{{ softDeleteAndWhereClause }}' => $hasSoftDeletes ? "AND `{$tableName}`.`deleted_at` IS NULL" : "",
             '{{ insertColumns }}' => $insertColumns,
             '{{ insertPlaceholders }}' => $insertPlaceholders,
             '{{ executeArrayParamsCreate }}' => rtrim($executeArrayParamsCreate),
@@ -282,5 +348,21 @@ class GenerateCrudCommand extends Command
         }
         if (empty($columns)) throw new Exception("Tidak ada kolom yang berhasil diparsing.");
         return $columns;
+    }
+
+    private function parseForeignKeys(string $sql): array
+    {
+        $keys = [];
+        $pattern = '/CONSTRAINT `?\w+`? FOREIGN KEY \(`?(\w+)`?\) REFERENCES `?(\w+)`? \(`?(\w+)`?\)/';
+        if (preg_match_all($pattern, $sql, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $keys[] = [
+                    'column' => $match[1],
+                    'parent_table' => $match[2],
+                    'parent_column' => $match[3],
+                ];
+            }
+        }
+        return $keys;
     }
 }

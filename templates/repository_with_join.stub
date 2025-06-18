@@ -1,0 +1,149 @@
+<?php
+
+namespace App\Repositories;
+
+use PDO;
+use Exception;
+{{ useStatements }}
+
+/**
+ * Class {{ repositoryName }}
+ * Menangani interaksi DB dan relasi untuk entitas {{ modelName }}.
+ */
+class {{ repositoryName }}
+{
+    private PDO $pdo;
+
+    public function __construct(PDO $pdo)
+    {
+        $this->pdo = $pdo;
+    }
+
+    /**
+     * Menghidrasi data mentah dari DB menjadi objek Model yang kaya relasi.
+     * @param array $row Data mentah dari PDO fetch
+     * @return {{ modelName }}
+     */
+    private function hydrate(array $row): {{ modelName }}
+    {
+        $model = new {{ modelName }}();
+        
+        // Memisahkan kolom milik model utama dan relasi
+        foreach ($row as $key => $value) {
+            if (strpos($key, '_') !== false) {
+                // Biarkan di-handle oleh logika hidrasi relasi di bawah
+                continue;
+            }
+            $camelKey = lcfirst(str_replace('_', '', ucwords($key, '_')));
+            if (property_exists($model, $camelKey)) {
+                $model->{$camelKey} = $value;
+            }
+        }
+{{ hydrationLogic }}
+        return $model;
+    }
+
+    /**
+     * Mengambil satu item berdasarkan ID dengan relasinya.
+     * @return {{ modelName }}|null
+     */
+    public function find(int $id): ?{{ modelName }}
+    {
+        $sql = "SELECT 
+           {{ selectColumns }}
+        FROM `{{ tableName }}`
+        {{ joinClause }}
+        WHERE `{{ tableName }}`.`id` = ? {{ softDeleteAndWhereClause }}
+        LIMIT 1";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row ? $this->hydrate($row) : null;
+    }
+
+    /**
+     * Mengambil semua item dengan pagination dan relasinya.
+     * @return array
+     */
+    public function all(int $page = 1, int $perPage = 15): array
+    {
+        $offset = ($page - 1) * $perPage;
+
+        $totalStmt = $this->pdo->query("SELECT COUNT(*) FROM `{{ tableName }}` {{ softDeleteWhereClause }}");
+        $total = $totalStmt->fetchColumn();
+
+        $sql = "SELECT 
+           {{ selectColumns }}
+        FROM `{{ tableName }}`
+        {{ joinClause }}
+        {{ softDeleteWhereClause }}
+        LIMIT :limit OFFSET :offset";
+        
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->bindParam(':limit', $perPage, PDO::PARAM_INT);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $data = array_map([$this, 'hydrate'], $rows);
+
+        return [
+            'total' => (int)$total,
+            'per_page' => $perPage,
+            'current_page' => $page,
+            'last_page' => (int)ceil($total / $perPage),
+            'data' => $data
+        ];
+    }
+    
+    /**
+     * Membuat item baru dari sebuah objek Model.
+     * @return {{ modelName }}|null
+     */
+    public function create({{ modelName }} $model): ?{{ modelName }}
+    {
+        $sql = "INSERT INTO `{{ tableName }}` ({{ insertColumns }}) VALUES ({{ insertPlaceholders }})";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+{{ executeArrayParamsCreate }}
+        ]);
+        
+        $lastId = $this->pdo->lastInsertId();
+        return $this->find((int)$lastId);
+    }
+
+    /**
+     * Memperbarui item yang ada dari sebuah objek Model.
+     * @return {{ modelName }}|null
+     */
+    public function update(int $id, {{ modelName }} $model): ?{{ modelName }}
+    {
+        $sql = "UPDATE `{{ tableName }}` SET {{ updateSetClause }} WHERE `id` = ?";
+        $stmt = $this->pdo->prepare($sql);
+        
+        $values = [
+{{ executeArrayParamsUpdate }}
+        ];
+        $values[] = $id;
+        $stmt->execute($values);
+
+        return $this->find($id);
+    }
+
+    /**
+     * Menghapus (atau soft delete) item.
+     * @return bool
+     */
+    public function delete(int $id): bool
+    {
+        $item = $this->find($id);
+        if (!$item) {
+            return false;
+        }
+        $stmt = $this->pdo->prepare("{{ deleteStatement }}");
+        return $stmt->execute([$id]);
+    }
+{{ restoreMethod }}
+}
