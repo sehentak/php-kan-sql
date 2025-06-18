@@ -1,0 +1,11 @@
+
+    /**
+     * Mengembalikan item yang sudah di-soft delete.
+     * @return bool
+     */
+    public function restore(int $id): bool
+    {
+        $stmt = $this->pdo->prepare("UPDATE `{{ tableName }}` SET `deleted_at` = NULL WHERE `id` = ?");
+        $stmt->execute([$id]);
+        return $stmt->rowCount() > 0;
+    }
