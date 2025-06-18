@@ -80,7 +80,18 @@ class GenerateCrudCommand extends Command
                 $this->generateRouter($output, $modelName);
                 $this->generateEnvExample($output);
 
-                // ... logika setup server ...
+                switch ($setupMode) {
+                    case 'apache':
+                        $this->generateHtaccess($output);
+                        break;
+                    case 'nginx':
+                        $this->generateNginxConfig($output);
+                        break;
+                    default:
+                        $output->writeln("<warning>Pilihan setup '{$setupMode}' tidak valid. Tidak ada konfigurasi server yang dibuat.</warning>");
+                        break;
+                }
+
                 $this->installDotenvDependency($output);
                 $this->printSetupInstructions($output);
             }
@@ -104,7 +115,8 @@ class GenerateCrudCommand extends Command
             $properties .= "    public \$" . $this->camelCase($column) . ";\n";
         }
         $this->createFromStub($output, '/src/Models/' . $modelName . '.php', 'model.stub', [
-            '{{ modelName }}' => $modelName, '{{ properties }}' => rtrim($properties),
+            '{{ modelName }}' => $modelName,
+            '{{ properties }}' => rtrim($properties),
         ], "Model `{$modelName}`");
     }
 
@@ -115,24 +127,41 @@ class GenerateCrudCommand extends Command
     {
         $repositoryName = "{$modelName}Repository";
         $fillableColumns = array_diff($columns, ['id', 'created_at', 'updated_at', 'deleted_at']);
+        
         $insertColumns = '`' . implode('`, `', $fillableColumns) . '`';
         $insertPlaceholders = rtrim(str_repeat('?, ', count($fillableColumns)), ', ');
         
         $updateSet = '';
-        foreach ($fillableColumns as $column) $updateSet .= "`{$column}` = ?, ";
+        $executeArrayParamsCreate = '';
+        $executeArrayParamsUpdate = '';
+
+        foreach ($fillableColumns as $column) {
+            $updateSet .= "`{$column}` = ?, ";
+            $camelCaseColumn = $this->camelCase($column);
+            $executeArrayParamsCreate .= "            \$model->{$camelCaseColumn},\n";
+            $executeArrayParamsUpdate .= "            \$model->{$camelCaseColumn},\n";
+        }
         
+        $restoreMethod = '';
+        if ($hasSoftDeletes) {
+            $restoreStub = file_get_contents(__DIR__ . '/../../templates/stubs/repository_restore_method.stub');
+            $restoreMethod = str_replace('{{ tableName }}', $tableName, $restoreStub);
+        }
+
         $this->createFromStub($output, '/src/Repositories/' . $repositoryName . '.php', 'repository.stub', [
             '{{ repositoryName }}' => $repositoryName,
             '{{ modelName }}' => $modelName,
             '{{ modelNamespace }}' => 'App\\Models\\' . $modelName,
             '{{ tableName }}' => $tableName,
-            '{{ softDeleteWhereClause }}' => $hasSoftDeletes ? "WHERE `deleted_at` IS NULL" : " ",
+            '{{ softDeleteWhereClause }}' => $hasSoftDeletes ? "WHERE `deleted_at` IS NULL" : "",
             '{{ softDeleteAndWhereClause }}' => $hasSoftDeletes ? "AND `deleted_at` IS NULL" : "",
             '{{ insertColumns }}' => $insertColumns,
             '{{ insertPlaceholders }}' => $insertPlaceholders,
+            '{{ executeArrayParamsCreate }}' => rtrim($executeArrayParamsCreate),
             '{{ updateSetClause }}' => rtrim($updateSet, ', '),
+            '{{ executeArrayParamsUpdate }}' => rtrim($executeArrayParamsUpdate),
             '{{ deleteStatement }}' => $hasSoftDeletes ? "UPDATE `{$tableName}` SET `deleted_at` = NOW() WHERE `id` = ?" : "DELETE FROM `{$tableName}` WHERE `id` = ?",
-            '{{ restoreStatement }}' => $hasSoftDeletes ? "UPDATE `{$tableName}` SET `deleted_at` = NULL WHERE `id` = ?" : "",
+            '{{ restoreMethod }}' => $restoreMethod,
         ], "Repository `{$repositoryName}`");
     }
 
@@ -142,6 +171,8 @@ class GenerateCrudCommand extends Command
         $repositoryName = "{$modelName}Repository";
         $this->createFromStub($output, '/src/Http/Controllers/' . $controllerName . '.php', 'controller.stub', [
             '{{ controllerName }}' => $controllerName,
+            '{{ modelName }}' => $modelName,
+            '{{ modelNamespace }}' => 'App\\Models\\' . $modelName,
             '{{ repositoryName }}' => $repositoryName,
             '{{ repositoryNamespace }}' => 'App\\Repositories\\' . $repositoryName,
             '{{ repositoryVariable }}' => lcfirst($repositoryName),
@@ -151,15 +182,62 @@ class GenerateCrudCommand extends Command
     private function generateRouter(OutputInterface $output, string $modelName): void
     {
         $this->createFromStub($output, '/public/index.php', 'setup/router.php.stub', [
-            '{{ modelName }}' => $modelName, // Untuk membuat contoh instansiasi
+            '{{ modelName }}' => $modelName,
         ], "Router (index.php)");
     }
 
-    // --- Metode Setup Lainnya (Database Bootstrap, .env, .htaccess, Nginx, dll) ---
-    private function generateDatabaseBootstrap(OutputInterface $output): void { /* ... logika sama ... */ }
-    private function generateEnvExample(OutputInterface $output): void { /* ... logika sama ... */ }
-    private function installDotenvDependency(OutputInterface $output): void { /* ... logika sama ... */ }
-    private function printSetupInstructions(OutputInterface $output): void { /* ... logika sama ... */ }
+    private function generateDatabaseBootstrap(OutputInterface $output): void
+    {
+        $this->createFromStub($output, '/bootstrap/database.php', 'setup/database.php.stub', [], "Bootstrap Database");
+    }
+
+    private function generateEnvExample(OutputInterface $output): void
+    {
+        $this->createFromStub($output, '/.env.example', 'setup/env.example.stub', [], "Contoh Environment (.env.example)");
+    }
+
+    private function generateHtaccess(OutputInterface $output): void
+    {
+        $this->createFromStub($output, '/public/.htaccess', 'setup/htaccess.stub', [], "Konfigurasi Apache (.htaccess)");
+    }
+
+    private function generateNginxConfig(OutputInterface $output): void
+    {
+        $this->createFromStub($output, '/nginx.conf.example', 'setup/nginx.conf.stub', [], "Contoh Konfigurasi Nginx");
+    }
+
+    private function installDotenvDependency(OutputInterface $output): void
+    {
+        $composerJsonPath = $this->projectRoot . '/composer.json';
+        if (!file_exists($composerJsonPath)) {
+            $output->writeln("<warning>composer.json tidak ditemukan. Melewati instalasi otomatis vlucas/phpdotenv.</warning>");
+            return;
+        }
+        $composerConfig = json_decode(file_get_contents($composerJsonPath), true);
+        if (isset($composerConfig['require']['vlucas/phpdotenv'])) {
+            $output->writeln("<info>Dependensi vlucas/phpdotenv sudah terinstal.</info>");
+            return;
+        }
+        $output->writeln("<info>Mencoba menginstal vlucas/phpdotenv...</info>");
+        $command = 'composer require vlucas/phpdotenv --working-dir=' . escapeshellarg($this->projectRoot);
+        shell_exec($command);
+        clearstatcache();
+        $composerConfig = json_decode(file_get_contents($composerJsonPath), true);
+        if (isset($composerConfig['require']['vlucas/phpdotenv'])) {
+            $output->writeln("<info>✅ vlucas/phpdotenv berhasil diinstal.</info>");
+        } else {
+            $output->writeln("<error>Gagal menginstal vlucas/phpdotenv secara otomatis.</error>");
+        }
+    }
+
+    private function printSetupInstructions(OutputInterface $output): void
+    {
+        $output->writeln("\n<bg=blue;fg=white> LANGKAH SELANJUTNYA (SETUP) </>");
+        $output->writeln("1. Salin <fg=yellow>.env.example</> menjadi <fg=yellow>.env</> dan isi kredensial database Anda.");
+        $output->writeln("2. Dependensi <fg=cyan>vlucas/phpdotenv</> telah diinstal secara otomatis untuk Anda.");
+        $output->writeln("3. Konfigurasikan web server Anda agar menunjuk ke direktori <fg=yellow>public</>.");
+        $output->writeln("4. Untuk development, jalankan dari root proyek: <fg=yellow>php -S localhost:8000 -t public</>");
+    }
     
     private function createFromStub(OutputInterface $output, string $filePath, string $stubName, array $replacements, string $entityName): void
     {
