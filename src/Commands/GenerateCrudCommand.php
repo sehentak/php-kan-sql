@@ -73,7 +73,7 @@ class GenerateCrudCommand extends Command
             $this->generateModel($output, $modelName, $columns);
             $this->generateController($output, $modelName, $tableName, $columns, $hasSoftDeletes);
             
-            // Jika mode setup aktif, generate file-file pendukung
+            // Jika mode setup aktif, generate file pendukung
             if ($setupMode !== false) {
                 $output->writeln("\n<info>Mode --setup aktif. Menghasilkan file pendukung...</info>");
                 $this->generateDatabaseBootstrap($output);
@@ -91,7 +91,10 @@ class GenerateCrudCommand extends Command
                         $output->writeln("<warning>Pilihan setup '{$setupMode}' tidak valid. Tidak ada konfigurasi server yang dibuat. Pilihan: apache, nginx.</warning>");
                         break;
                 }
-                $this->printSetupInstructions($output);
+                
+                // --- PERUBAHAN DI SINI ---
+                $this->installDotenvDependency($output); // Instal dependensi secara otomatis
+                $this->printSetupInstructions($output); // Tampilkan instruksi yang sudah diperbarui
             }
 
             $output->writeln("\n<question>✅ Sukses! Kode fungsional telah berhasil dibuat.</question>");
@@ -194,12 +197,48 @@ class GenerateCrudCommand extends Command
         $this->createFromStub($output, $this->projectRoot . '/.env.example', 'setup/env.example.stub', [], "Contoh Environment (.env.example)");
     }
 
+    // --- METODE BARU DI SINI ---
+    /**
+     * Menginstal dependensi vlucas/phpdotenv secara otomatis.
+     */
+    private function installDotenvDependency(OutputInterface $output): void
+    {
+        $composerJsonPath = $this->projectRoot . '/composer.json';
+        if (!file_exists($composerJsonPath)) {
+            $output->writeln("<warning>composer.json tidak ditemukan. Melewati instalasi otomatis vlucas/phpdotenv.</warning>");
+            return;
+        }
+
+        $composerConfig = json_decode(file_get_contents($composerJsonPath), true);
+        $isInstalled = isset($composerConfig['require']['vlucas/phpdotenv']);
+
+        if ($isInstalled) {
+            $output->writeln("<info>Dependensi vlucas/phpdotenv sudah terinstal.</info>");
+            return;
+        }
+
+        $output->writeln("<info>Mencoba menginstal vlucas/phpdotenv...</info>");
+        
+        // Menjalankan perintah composer dari direktori proyek pengguna
+        $command = 'composer require vlucas/phpdotenv --working-dir=' . escapeshellarg($this->projectRoot);
+        shell_exec($command);
+
+        // Verifikasi ulang
+        $composerConfig = json_decode(file_get_contents($composerJsonPath), true);
+        if (isset($composerConfig['require']['vlucas/phpdotenv'])) {
+            $output->writeln("<info>✅ vlucas/phpdotenv berhasil diinstal.</info>");
+        } else {
+            $output->writeln("<error>Gagal menginstal vlucas/phpdotenv secara otomatis. Silakan jalankan manual: composer require vlucas/phpdotenv</error>");
+        }
+    }
+    
+    // --- METODE YANG DIPERBARUI DI SINI ---
     private function printSetupInstructions(OutputInterface $output): void
     {
         $output->writeln("\n<bg=blue;fg=white> LANGKAH SELANJUTNYA (SETUP) </>");
         $output->writeln("1. Salin `.env.example` menjadi `.env` dan isi kredensial database Anda.");
         $output->writeln("   <fg=yellow>cp .env.example .env</>");
-        $output->writeln("2. Jalankan <fg=yellow>composer require vlucas/phpdotenv</> untuk membaca file .env.");
+        $output->writeln("2. Dependensi <fg=cyan>vlucas/phpdotenv</> telah diinstal secara otomatis untuk Anda.");
         $output->writeln("3. Konfigurasikan web server Anda (Apache/Nginx) agar menunjuk ke direktori <fg=yellow>public</>.");
         $output->writeln("4. Untuk development, jalankan server PHP bawaan:");
         $output->writeln("   <fg=yellow>php -S localhost:8000 -t public</>");
