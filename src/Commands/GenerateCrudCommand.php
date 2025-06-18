@@ -11,7 +11,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Class GenerateCrudCommand
- * Perintah utama untuk membaca skema SQL dan menghasilkan file Model & Controller
+ * Perintah utama untuk membaca skema SQL dan menghasilkan file Model & Repository
  * yang fungsional menggunakan PDO murni.
  */
 class GenerateCrudCommand extends Command
@@ -32,7 +32,7 @@ class GenerateCrudCommand extends Command
     {
         $this
             ->setName('make:crud')
-            ->setDescription('Membuat Model & Controller PDO fungsional dari skema SQL.')
+            ->setDescription('Membuat Model & Repository PDO fungsional dari skema SQL.')
             ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql.')
             ->addOption(
                 'setup',
@@ -78,7 +78,7 @@ class GenerateCrudCommand extends Command
             // Generate file-file inti
             $this->generateModel($output, $modelName, $columns);
             // --- PERUBAHAN DI SINI: Melewatkan $columns yang sudah diparsing ---
-            $this->generateController($output, $modelName, $tableName, $columns, $hasSoftDeletes);
+            $this->generateRepository($output, $modelName, $tableName, $columns, $hasSoftDeletes);
             
             // Jika mode setup aktif, generate file pendukung
             if ($setupMode !== false) {
@@ -134,11 +134,11 @@ class GenerateCrudCommand extends Command
     }
 
     /**
-     * Menghasilkan file Controller berdasarkan template.
+     * Menghasilkan file Repository berdasarkan template.
      */
-    private function generateController(OutputInterface $output, string $modelName, string $tableName, array $columns, bool $hasSoftDeletes): void
+    private function generateRepository(OutputInterface $output, string $modelName, string $tableName, array $columns, bool $hasSoftDeletes): void
     {
-        $controllerName = "{$modelName}Controller";
+        $repositoryName = "{$modelName}Repository";
         
         // Menggunakan $columns yang sudah dilewatkan, bukan mem-parsing ulang
         $fillableColumns = array_diff($columns, ['id', 'created_at', 'updated_at', 'deleted_at']);
@@ -165,12 +165,12 @@ class GenerateCrudCommand extends Command
 
         $this->createFromStub(
             $output,
-            $this->projectRoot . '/src/Http/Controllers/' . $controllerName . '.php',
-            'controller.stub',
+            $this->projectRoot . '/src/Http/Repositories/' . $repositoryName . '.php',
+            'repository.stub',
             [
-                '{{ namespace }}' => 'App\Http\Controllers',
+                '{{ namespace }}' => 'App\Http\Repositories',
                 '{{ modelNamespace }}' => 'App\Models\\' . $modelName,
-                '{{ controllerName }}' => $controllerName,
+                '{{ repositoryName }}' => $repositoryName,
                 '{{ modelName }}' => $modelName,
                 '{{ tableName }}' => $tableName,
                 '{{ softDeleteWhereClause }}' => $hasSoftDeletes ? "WHERE `deleted_at` IS NULL" : "",
@@ -181,7 +181,7 @@ class GenerateCrudCommand extends Command
                 '{{ deleteStatement }}' => $hasSoftDeletes ? "UPDATE `{$tableName}` SET `deleted_at` = NOW() WHERE `id` = ?" : "DELETE FROM `{$tableName}` WHERE `id` = ?",
                 '{{ extraApiMethods }}' => $extraMethods,
             ],
-            "Controller `{$controllerName}`"
+            "Repository `{$repositoryName}`"
         );
     }
 
