@@ -5,7 +5,7 @@ namespace {{ namespace }};
 use PDO;
 use Exception;
 
-class {{ controllerName }}
+class {{ repositoryName }}
 {
     private PDO $pdo;
 
