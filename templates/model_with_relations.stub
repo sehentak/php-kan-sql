@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
+{{ useStatements }}
 /**
  * Class {{ modelName }}
  * Bertindak sebagai Data Transfer Object (DTO) atau entitas data.
- * Tidak memiliki logika database, hanya merepresentasikan satu baris dari tabel.
  */
 class {{ modelName }}
 {
