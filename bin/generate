@@ -9,7 +9,7 @@
     ];
     foreach ($files as $file) {
         if (file_exists($file)) {
-            require $file;
+            require_once $file;
             return;
         }
     }
@@ -21,7 +21,7 @@ use Sehentak\PhpKanSql\Commands\GenerateCrudCommand;
 use Symfony\Component\Console\Application;
 
 // Inisialisasi aplikasi console
-$application = new Application('PHP-Kan-SQL Code Generator', '1.1.0');
+$application = new Application('PHP-Kan-SQL Code Generator (PDO Edition)', '3.0.0');
 
 // Daftarkan perintah utama kita
 $application->add(new GenerateCrudCommand());
@@ -30,6 +30,6 @@ $application->add(new GenerateCrudCommand());
 try {
     $application->run();
 } catch (Exception $e) {
-    fwrite(STDERR, 'Error: ' . $e->getMessage() . PHP_EOL);
+    fwrite(STDERR, 'FATAL ERROR: ' . $e->getMessage() . PHP_EOL);
     exit(1);
 }

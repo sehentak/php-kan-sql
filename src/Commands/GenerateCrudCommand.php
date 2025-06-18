@@ -8,11 +8,16 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+/**
+ * Class GenerateCrudCommand
+ * Perintah utama untuk membaca skema SQL dan menghasilkan file Model & Controller
+ * yang fungsional menggunakan PDO murni.
+ */
 class GenerateCrudCommand extends Command
 {
     private string $projectRoot;
 
-    public function __construct(string $name = null)
+    public function __construct(?string $name = null)
     {
         parent::__construct($name);
         $this->projectRoot = getcwd();
@@ -22,7 +27,7 @@ class GenerateCrudCommand extends Command
     {
         $this
             ->setName('make:crud')
-            ->setDescription('Membuat file Model & Controller dari skema SQL dengan deteksi Soft Delete.')
+            ->setDescription('Membuat Model & Controller PDO fungsional dari skema SQL.')
             ->addArgument('sql_file', InputArgument::REQUIRED, 'Path ke file skema .sql dari root proyek.');
     }
 
@@ -30,71 +35,69 @@ class GenerateCrudCommand extends Command
     {
         try {
             $sqlFilePath = $this->projectRoot . '/' . $input->getArgument('sql_file');
-            if (!file_exists($sqlFilePath)) {
-                throw new Exception("File tidak ditemukan di path: {$sqlFilePath}");
-            }
-
             $output->writeln("<info>Membaca file skema:</info> {$sqlFilePath}");
+            if (!file_exists($sqlFilePath)) throw new Exception("File tidak ditemukan.");
+
             $sqlContent = file_get_contents($sqlFilePath);
 
             $tableName = $this->parseTableName($sqlContent);
             $columns = $this->parseColumns($sqlContent);
+            $output->writeln("<comment>Tabel terdeteksi:</comment> {$tableName}");
+
+            $hasSoftDeletes = in_array('deleted_at', $columns);
+            if ($hasSoftDeletes) $output->writeln("<comment>Kolom 'deleted_at' terdeteksi. Soft Delete akan diaktifkan.</comment>");
+
+            $modelName = $this->studlyCase($this->singular($tableName));
             $fillableColumns = array_diff($columns, ['id', 'created_at', 'updated_at', 'deleted_at']);
             
-            $hasSoftDeletes = in_array('deleted_at', $columns);
-            if ($hasSoftDeletes) {
-                $output->writeln("<comment>Kolom 'deleted_at' terdeteksi. Fitur Soft Delete akan diaktifkan.</comment>");
-            }
+            $this->generateModel($output, $modelName, $columns);
+            $this->generateController($output, $modelName, $tableName, $fillableColumns, $hasSoftDeletes);
             
-            $output->writeln("<comment>Nama tabel terdeteksi:</comment> {$tableName}");
-
-            $this->generateModel($output, $tableName, $fillableColumns, $hasSoftDeletes);
-            $this->generateController($output, $tableName, $hasSoftDeletes);
-            
-            $output->writeln("\n<question>✅ Sukses! File Model dan Controller telah berhasil dibuat.</question>");
+            $output->writeln("\n<question>✅ Sukses! Kode fungsional telah berhasil dibuat.</question>");
             return Command::SUCCESS;
+
         } catch (Exception $e) {
-            $output->writeln("<error>Error: " . $e->getMessage() . "</error>");
+            $output->writeln("\n<error>Sebuah kesalahan terjadi:</error>");
+            $output->writeln($e->getMessage());
             return Command::FAILURE;
         }
     }
 
-    private function generateModel(OutputInterface $output, string $tableName, array $fillableColumns, bool $hasSoftDeletes): void
+    private function generateModel(OutputInterface $output, string $modelName, array $columns): void
     {
-        $modelName = $this->studlyCase($this->singular($tableName));
-        
-        $softDeletesUse = $hasSoftDeletes ? "use Illuminate\\Database\\Eloquent\\SoftDeletes;\n" : '';
-        $softDeletesTrait = $hasSoftDeletes ? "    use SoftDeletes;\n" : '';
+        $properties = '';
+        foreach ($columns as $column) {
+            $properties .= "    public \$" . $this->camelCase($column) . ";\n";
+        }
 
         $this->createFromStub(
             $output,
             $this->projectRoot . '/src/Models/' . $modelName . '.php',
             'model.stub',
             [
-                '{{ softDeletesUseStatement }}' => $softDeletesUse,
-                '{{ useSoftDeletesTrait }}' => $softDeletesTrait,
                 '{{ modelName }}' => $modelName,
-                '{{ tableName }}' => $tableName,
-                '{{ fillableColumns }}' => "'" . implode("',\n        '", $fillableColumns) . "'",
+                '{{ properties }}' => rtrim($properties),
             ],
             "Model `{$modelName}`"
         );
     }
 
-    private function generateController(OutputInterface $output, string $tableName, bool $hasSoftDeletes): void
+    private function generateController(OutputInterface $output, string $modelName, string $tableName, array $fillableColumns, bool $hasSoftDeletes): void
     {
-        $modelName = $this->studlyCase($this->singular($tableName));
         $controllerName = "{$modelName}Controller";
         
-        $extraMethods = '';
-        if ($hasSoftDeletes) {
-            $restoreStub = file_get_contents(__DIR__ . '/../../templates/stubs/restore_method.stub');
-            $extraMethods = str_replace(
-                ['{{ modelName }}', '{{ modelVariable }}'],
-                [$modelName, lcfirst($modelName)],
-                $restoreStub
-            );
+        $insertColumns = '`' . implode('`, `', $fillableColumns) . '`';
+        $insertPlaceholders = rtrim(str_repeat('?, ', count($fillableColumns)), ', ');
+        
+        $updateSet = '';
+        foreach ($fillableColumns as $column) {
+            $updateSet .= "`{$column}` = ?, ";
         }
+        $updateSet = rtrim($updateSet, ', ');
+
+        $extraMethods = $hasSoftDeletes 
+            ? file_get_contents(__DIR__ . '/../../templates/stubs/restore_method.stub') 
+            : '';
 
         $this->createFromStub(
             $output,
@@ -105,9 +108,13 @@ class GenerateCrudCommand extends Command
                 '{{ modelNamespace }}' => 'App\Models\\' . $modelName,
                 '{{ controllerName }}' => $controllerName,
                 '{{ modelName }}' => $modelName,
-                '{{ modelVariable }}' => lcfirst($modelName),
-                '{{ modelVariablePlural }}' => $this->plural(lcfirst($modelName)),
-                '{{ destroyComment }}' => $hasSoftDeletes ? 'Memindahkan resource ke tong sampah dengan mengisi `deleted_at` (soft delete).' : 'Menghapus resource secara permanen dari database.',
+                '{{ tableName }}' => $tableName,
+                '{{ softDeleteWhereClause }}' => $hasSoftDeletes ? "WHERE `deleted_at` IS NULL" : "",
+                '{{ softDeleteAndWhereClause }}' => $hasSoftDeletes ? "AND `deleted_at` IS NULL" : "",
+                '{{ insertColumns }}' => $insertColumns,
+                '{{ insertPlaceholders }}' => $insertPlaceholders,
+                '{{ updateSetClause }}' => $updateSet,
+                '{{ deleteStatement }}' => $hasSoftDeletes ? "UPDATE `{$tableName}` SET `deleted_at` = NOW() WHERE `id` = ?" : "DELETE FROM `{$tableName}` WHERE `id` = ?",
                 '{{ extraApiMethods }}' => $extraMethods,
             ],
             "Controller `{$controllerName}`"
@@ -123,15 +130,15 @@ class GenerateCrudCommand extends Command
             return;
         }
         $stubPath = __DIR__ . '/../../templates/' . $stubName;
-        if (!file_exists($stubPath)) throw new Exception("Template `{$stubName}` tidak ditemukan.");
-        $stub = file_get_contents($stubPath);
-        foreach ($replacements as $search => $replace) $stub = str_replace($search, $replace, $stub);
-        file_put_contents($filePath, $stub);
+        if (!file_exists($stubPath)) throw new Exception("FATAL: Template `{$stubName}` tidak ditemukan.");
+        $stubContent = file_get_contents($stubPath);
+        $generatedContent = str_replace(array_keys($replacements), array_values($replacements), $stubContent);
+        file_put_contents($filePath, $generatedContent);
         $output->writeln("<info>✅ {$entityName} berhasil dibuat di:</info> " . str_replace($this->projectRoot . '/', '', $filePath));
     }
 
-    // --- Helper Methods ---
     private function studlyCase(string $value): string { return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $value))); }
+    private function camelCase(string $value): string { return lcfirst($this->studlyCase($value)); }
     private function singular(string $value): string { return rtrim($value, 's'); }
     private function plural(string $value): string { return $value . 's'; }
     private function parseTableName(string $sql): string { if (preg_match('/CREATE TABLE `?(\w+)`?/', $sql, $matches)) return $matches[1]; throw new Exception("Tidak dapat mem-parsing nama tabel."); }
@@ -147,6 +154,7 @@ class GenerateCrudCommand extends Command
                 if (!$isKeywordLine) $columns[] = $colMatches[1];
             }
         }
+        if (empty($columns)) throw new Exception("Tidak ada kolom yang berhasil diparsing.");
         return $columns;
     }
 }

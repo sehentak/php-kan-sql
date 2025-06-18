@@ -2,28 +2,12 @@
 
 namespace App\Models;
 
-// Jika menggunakan Eloquent, uncomment baris di bawah
-// use Illuminate\Database\Eloquent\Factories\HasFactory;
-// use Illuminate\Database\Eloquent\Model;
-{{ softDeletesUseStatement }}
-// class {{ modelName }} extends Model
+/**
+ * Class {{ modelName }}
+ * Bertindak sebagai Data Transfer Object (DTO).
+ * Tidak memiliki logika database, hanya merepresentasikan satu baris dari tabel.
+ */
 class {{ modelName }}
 {
-    // use HasFactory; // Uncomment jika menggunakan Eloquent
-    {{ useSoftDeletesTrait }}
-    /**
-     * Nama tabel yang terasosiasi dengan model.
-     *
-     * @var string
-     */
-    protected $table = '{{ tableName }}';
-
-    /**
-     * Atribut yang dapat diisi secara massal.
-     *
-     * @var array<int, string>
-     */
-    protected $fillable = [
-        {{ fillableColumns }}
-    ];
+{{ properties }}
 }
