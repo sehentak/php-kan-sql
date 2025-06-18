@@ -35,7 +35,7 @@ Pengelola proyek bertanggung jawab untuk mengklarifikasi dan menegakkan standar 
 Pengelola proyek memiliki hak dan tanggung jawab untuk menghapus, mengedit, atau menolak komentar, commit, kode, editan wiki, issue, dan kontribusi lain yang tidak selaras dengan Kode Etik ini, atau untuk melarang sementara atau permanen setiap kontributor atas perilaku lain yang mereka anggap tidak pantas, mengancam, menyinggung, atau berbahaya.
 Penegakan
 
-Perilaku kasar, melecehkan, atau tidak dapat diterima dapat dilaporkan dengan menghubungi tim proyek di [MASUKKAN ALAMAT EMAIL KONTAK ANDA DI SINI]. Semua keluhan akan ditinjau dan diselidiki dan akan menghasilkan respons yang dianggap perlu dan sesuai dengan keadaan. Tim proyek berkewajiban untuk menjaga kerahasiaan pelapor sehubungan dengan laporan suatu insiden.
+Perilaku kasar, melecehkan, atau tidak dapat diterima dapat dilaporkan dengan menghubungi tim proyek di angger.pr@sehentak.com. Semua keluhan akan ditinjau dan diselidiki dan akan menghasilkan respons yang dianggap perlu dan sesuai dengan keadaan. Tim proyek berkewajiban untuk menjaga kerahasiaan pelapor sehubungan dengan laporan suatu insiden.
 
 Pengelola proyek yang tidak mengikuti atau menegakkan Kode Etik dengan itikad baik dapat menghadapi sanksi sementara atau permanen sebagaimana ditentukan oleh anggota lain dari pimpinan proyek.
 Atribusi

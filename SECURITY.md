@@ -27,7 +27,7 @@ Untuk memastikan kerentanan tidak diungkapkan kepada publik sebelum kami memilik
 
 Sebagai gantinya, silakan laporkan kerentanan secara pribadi dengan mengirim email ke:
 
-[MASUKKAN ALAMAT EMAIL KEAMANAN ANDA DI SINI, misal: security@domain-anda.com]
+angger.pr@sehentak.com
 Apa yang Harus Disertakan dalam Laporan Anda?
 
 Harap sertakan informasi sebanyak mungkin dalam laporan Anda untuk membantu kami mereproduksi dan memahami masalahnya dengan lebih baik. Jika memungkinkan, sertakan:
