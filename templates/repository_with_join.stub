@@ -3,12 +3,11 @@
 namespace App\Repositories;
 
 use PDO;
-use Exception;
-use {{ modelNamespace }};
+{{ useStatements }}
 
 /**
  * Class {{ repositoryName }}
- * Bertanggung jawab atas semua interaksi database untuk entitas {{ modelName }}.
+ * Menangani interaksi DB dan relasi untuk entitas {{ modelName }}.
  */
 class {{ repositoryName }}
 {
@@ -20,21 +19,52 @@ class {{ repositoryName }}
     }
 
     /**
-     * Mengambil satu item berdasarkan ID.
+     * Menghidrasi data mentah dari DB menjadi objek Model yang kaya relasi.
+     * @param array $row Data mentah dari PDO fetch
+     * @return {{ modelName }}
+     */
+    private function hydrate(array $row): {{ modelName }}
+    {
+        $model = new {{ modelName }}();
+        
+        // Memisahkan kolom milik model utama dan relasi
+        foreach ($row as $key => $value) {
+            if (strpos($key, '_') !== false) {
+                // Biarkan di-handle oleh logika hidrasi relasi di bawah
+                continue;
+            }
+            $camelKey = lcfirst(str_replace('_', '', ucwords($key, '_')));
+            if (property_exists($model, $camelKey)) {
+                $model->{$camelKey} = $value;
+            }
+        }
+{{ hydrationLogic }}
+        return $model;
+    }
+
+    /**
+     * Mengambil satu item berdasarkan ID dengan relasinya.
      * @return {{ modelName }}|null
      */
     public function find(int $id): ?{{ modelName }}
     {
-        $stmt = $this->pdo->prepare("SELECT * FROM `{{ tableName }}` WHERE `id` = ? {{ softDeleteAndWhereClause }} LIMIT 1");
+        $sql = "SELECT 
+           {{ selectColumns }}
+        FROM `{{ tableName }}`
+        {{ joinClause }}
+        WHERE `{{ tableName }}`.`id` = ? {{ softDeleteAndWhereClause }}
+        LIMIT 1";
+
+        $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$id]);
-        $stmt->setFetchMode(PDO::FETCH_CLASS, {{ modelName }}::class);
-        $result = $stmt->fetch();
-        return $result ?: null;
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row ? $this->hydrate($row) : null;
     }
 
     /**
-     * Mengambil semua item dengan pagination.
-     * @return array{total: int, per_page: int, current_page: int, last_page: int, data: {{ modelName }}[]}
+     * Mengambil semua item dengan pagination dan relasinya.
+     * @return array
      */
     public function all(int $page = 1, int $perPage = 15): array
     {
@@ -43,12 +73,20 @@ class {{ repositoryName }}
         $totalStmt = $this->pdo->query("SELECT COUNT(*) FROM `{{ tableName }}` {{ softDeleteWhereClause }}");
         $total = $totalStmt->fetchColumn();
 
-        $stmt = $this->pdo->prepare("SELECT * FROM `{{ tableName }}` {{ softDeleteWhereClause }} LIMIT :limit OFFSET :offset");
+        $sql = "SELECT 
+           {{ selectColumns }}
+        FROM `{{ tableName }}`
+        {{ joinClause }}
+        {{ softDeleteWhereClause }}
+        LIMIT :limit OFFSET :offset";
+        
+        $stmt = $this->pdo->prepare($sql);
         $stmt->bindParam(':limit', $perPage, PDO::PARAM_INT);
         $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
         
-        $data = $stmt->fetchAll(PDO::FETCH_CLASS, {{ modelName }}::class);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $data = array_map([$this, 'hydrate'], $rows);
 
         return [
             'total' => (int)$total,
@@ -99,6 +137,10 @@ class {{ repositoryName }}
      */
     public function delete(int $id): bool
     {
+        $item = $this->find($id);
+        if (!$item) {
+            return false;
+        }
         $stmt = $this->pdo->prepare("{{ deleteStatement }}");
         return $stmt->execute([$id]);
     }
