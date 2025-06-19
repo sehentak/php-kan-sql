@@ -12,7 +12,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * Class GenerateCrudCommand
  * Generates a full Model-Repository-Controller architecture from an SQL schema,
- * with automatic foreign key detection and relationship handling.
+ * with automatic foreign key and data type detection.
  */
 class GenerateCrudCommand extends Command
 {
@@ -131,7 +131,8 @@ class GenerateCrudCommand extends Command
         $existingUse = [];
 
         foreach ($columns as $column) {
-            $properties .= "    public ?string $" . $this->camelCase($column) . " = null;\n";
+            $phpType = $this->mapSqlTypeToPhpType($column['type']);
+            $properties .= "    public ?{$phpType} \$" . $this->camelCase($column['name']) . " = null;\n";
         }
         
         foreach ($foreignKeys as $fk) {
@@ -399,5 +400,20 @@ class GenerateCrudCommand extends Command
             }
         }
         return $keys;
+    }
+
+    /**
+     * Maps SQL data types to PHP types.
+     */
+    private function mapSqlTypeToPhpType(string $sqlType): string
+    {
+        $sqlType = strtoupper($sqlType);
+
+        if (str_contains($sqlType, 'INT')) return 'int';
+        if (str_contains($sqlType, 'DECIMAL') || str_contains($sqlType, 'FLOAT') || str_contains($sqlType, 'DOUBLE')) return 'float';
+        if (str_contains($sqlType, 'BOOL')) return 'bool';
+        
+        // Default to string for VARCHAR, CHAR, TEXT, DATE, TIMESTAMP, etc.
+        return 'string';
     }
 }
