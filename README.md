@@ -19,7 +19,7 @@ Terinspirasi dari sqlc untuk Go, alat ini bertujuan untuk membawa kemudahan yang
 
 Anda dapat menambahkan PHP-Kan-SQL sebagai dependensi ke dalam proyek Anda menggunakan Composer.
 
-composer require sehentak/php-kan-sql
+`composer require sehentak/php-kan-sql`
 
 (Catatan: Saat ini, library ini belum dipublikasikan ke Packagist. Untuk testing lokal, silakan lihat panduan Wiki).
 💡 Cara Penggunaan
@@ -31,11 +31,11 @@ Mode ini hanya akan menghasilkan file Model dan Controller di dalam struktur pro
 
 Perintah:
 
-vendor/bin/generate make:crud path/ke/file_skema.sql
+`vendor/bin/generate make:crud path/ke/file_skema.sql`
 
 Contoh:
 
-vendor/bin/generate make:crud database/schema/users.sql
+`vendor/bin/generate make:crud database/schema/users.sql`
 
 Hasil:
 
@@ -50,13 +50,13 @@ Mode ini akan membuat API sederhana yang bisa langsung dijalankan.
 Perintah:
 
 # Untuk Apache (default)
-vendor/bin/generate make:crud path/ke/file_skema.sql --setup
+`vendor/bin/generate make:crud path/ke/file_skema.sql --setup`
 
 # Atau secara eksplisit
-vendor/bin/generate make:crud path/ke/file_skema.sql --setup=apache
+`vendor/bin/generate make:crud path/ke/file_skema.sql --setup=apache`
 
 # Untuk Nginx
-vendor/bin/generate make:crud path/ke/file_skema.sql --setup=nginx
+`vendor/bin/generate make:crud path/ke/file_skema.sql --setup=nginx`
 
 Hasil Tambahan (Selain Model & Controller):
 
